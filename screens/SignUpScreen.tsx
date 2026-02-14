@@ -12,9 +12,10 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { SignUpScreenNavigationProp } from "../types/navigation";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
+import { getUserData, userService, setUserPreferences } from "../services";
 
 type SignUpScreenProps = {
   navigation: SignUpScreenNavigationProp;
@@ -24,40 +25,41 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
   const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
 
-  const { response, signInWithGoogle, getUserInfo, isReady } = useGoogleAuth();
-
-  useEffect(() => {
-    handleGoogleResponse();
-  }, [response]);
-
-  const handleGoogleResponse = async () => {
-    if (response?.type === "success") {
-      setIsLoading(true);
-      const { authentication } = response;
-      if (authentication?.accessToken) {
-        const userInfo = await getUserInfo(authentication.accessToken);
-        if (userInfo) {
-          Alert.alert(
-            "Google Sign Up Success",
-            `Welcome, ${userInfo.name}!\nEmail: ${userInfo.email}`,
-            [{ text: "OK" }]
-          );
-          // TODO: Navigate to home screen or save user session
-        }
-      }
-      setIsLoading(false);
-    } else if (response?.type === "error") {
-      Alert.alert("Error", "Google sign up failed. Please try again.");
-    }
-  };
+  const { signInWithGoogle, isSigningIn, error, isReady } = useGoogleAuth();
 
   const handleGoogleSignUp = async () => {
-    try {
-      await signInWithGoogle();
-    } catch (error) {
-      Alert.alert("Error", "Failed to initiate Google sign up");
+    const user = await signInWithGoogle();
+
+    if (user) {
+      try {
+        const userData = await getUserData();
+        if (userData?.uuid) {
+          try {
+            const preferences = await userService.getUserPreferences(
+              userData.uuid
+            );
+            await setUserPreferences(preferences || null);
+          } catch {
+            await setUserPreferences(null);
+          }
+        }
+
+        // Navigate to Home screen
+        navigation.reset({
+          index: 0,
+          routes: [{ name: "MainTabs" }],
+        });
+      } catch (fetchError) {
+        console.error("Error fetching preferences:", fetchError);
+        // Still navigate even if preferences fetch fails
+        navigation.reset({
+          index: 0,
+          routes: [{ name: "MainTabs" }],
+        });
+      }
+    } else if (error) {
+      Alert.alert("Error", error);
     }
   };
 
@@ -147,9 +149,9 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
               <TouchableOpacity
                 style={[styles.socialButton, !isReady && styles.disabledButton]}
                 onPress={handleGoogleSignUp}
-                disabled={!isReady || isLoading}
+                disabled={!isReady || isSigningIn}
               >
-                {isLoading ? (
+                {isSigningIn ? (
                   <ActivityIndicator size="small" color="#333" />
                 ) : (
                   <Text style={styles.socialIcon}>G</Text>

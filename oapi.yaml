@@ -1,0 +1,649 @@
+openapi: "3.0.0"
+info:
+  version: 0.0.1
+  title: Breakpoint backend server
+servers:
+  - url: http://localhost:1323/
+    description: OpenAPI endpoint probably
+tags:
+  - name: ping1
+  - name: ping
+  - name: auth
+  - name: user
+  - name: plans
+  - name: admin
+  - name: breakpoints
+paths:
+  /ping:
+    get:
+      tags:
+        - ping
+      operationId: getping
+      responses:
+        '200':
+          description: pet response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pong'
+
+  /ping1:
+    get:
+      tags:
+        - ping1
+      operationId: ping1
+      responses:
+        '200':
+          description: pet response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pong'
+  
+  /signup:
+    post:
+      tags:
+        - auth
+      operationId: signUp
+      responses:
+        '200':
+          description: detail signup response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JWT'
+  /google/auth:
+    post:
+      tags:
+        - auth
+      operationId: GoogleAuth
+      responses:
+        '200':
+         $ref: "#/components/responses/signinResponse"
+  
+  /login:
+    post:
+      tags:
+        - auth
+      operationId: login
+      responses:
+        '200':
+          description: detail signup response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  
+  /logout:
+    post:
+        tags:
+          - auth
+        operationId: logout
+        responses:
+          '200':
+            description: detail signup response
+
+  /callback:
+    get:
+        tags:
+          - auth
+        operationId: callback
+        responses:
+          '200':
+            description: detail signup response
+            content:
+              application/json:
+                schema:
+                  type: object
+                  properties:
+                    status:
+                      type: string
+  
+  /me:
+    get:
+      tags:
+          - auth
+      operationId: getProfile
+      responses:
+          '200':
+            description: detail signup response
+            content:
+              application/json:
+                schema:
+                  type: object
+                  properties:
+                    status:
+                      type: string
+
+  /{id}:
+    parameters:
+        - $ref: "#/components/parameters/id"
+    get:
+      tags:
+        - user
+      operationId: getUserDetail
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uuid:
+                    type: string
+                  username:
+                    type: string
+                  email:
+                    type: string
+                  
+    put:
+      tags:
+        - user
+      operationId: updateUserDetail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  username:
+                    type: string
+                  updated_at:
+                    type: string
+
+  /{id}/preferences:
+    parameters:
+        - $ref: "#/components/parameters/id"
+    get:
+      tags:
+        - user
+      operationId: getUserPreferences
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uuid:
+                    type: string
+                  preference:
+                    type: string
+
+    put:
+      tags:
+        - user
+      operationId: updateUserPreferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                preference:
+                  type: string
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  preference:
+                    type: string
+                  updated_at:
+                    type: string
+
+
+  /{id}/techniques:
+    parameters:
+        - $ref: "#/components/parameters/id"
+    get:
+      tags:
+        - breakpoints
+      operationId: getBreakPointTechniques
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    uuid:
+                      type: string
+                    preference_uuid:
+                      type: string
+                    is_active:
+                      type: boolean
+                    techniques:
+                      type: string
+
+  /generate:
+    post:
+      tags:
+        - breakpoints
+      operationId: generateBreakPoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+              schema:
+                type: object
+                properties:
+                  user_uuid:
+                    type: string
+      responses:
+        '200':
+          $ref: "#/components/responses/scheduleResponse"
+          
+  /{id}/history:
+    parameters:
+        - $ref: "#/components/parameters/id"
+    get:
+      tags:
+        - breakpoints
+      operationId: getBreakPointHistory
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    uuid:
+                      type: string
+                    created_at:
+                      type: string
+  /{id}/current:
+    get:
+      tags:
+        - plans
+      operationId: getCurrentPlan
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uuid:
+                    type: string
+                  plan_type:
+                    type: string
+                  start_date:
+                    type: string
+                  end_date:
+                    type: string
+  
+  /upgrade:
+    post:
+      tags:
+        - plans
+      operationId: postUpgradePlan
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  
+  /{id}/subscribe:
+    post:
+      tags:
+        - plans
+      operationId: postSubscribePlan
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                plan_type:
+                  type: string
+                  enum: ["free","premium"]
+      responses:
+        '200':
+          $ref: '#/components/responses/successResponse'
+
+  /{id}/plan_history:
+    get:
+      tags:
+        - plans
+      operationId: getPlanHistory
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    uuid:
+                      type: string
+                    plan_type:
+                      type: string
+                    start_date:
+                      type: string
+                    end_date:
+                      type: string
+  
+  /{id}/usage:
+    get:
+      tags:
+        - plans
+      operationId: getPlanUsage
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                properties:
+                  generation_count:
+                    type: integer
+                  date:
+                    type: string
+
+  /users:
+    get:
+      tags:
+        - admin
+      operationId: getUsers
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  
+  /users/{id}:
+    get:
+      tags:
+        - admin
+      operationId: getUserDetails
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+
+  /users/{id}/status:
+    patch:
+      tags:
+        - admin
+      operationId: getUserStatus
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+
+  /add_admin:
+    post:
+      tags:
+        - admin
+      operationId: insertAdmin
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  
+  /{adminId}:
+    get:
+      tags:
+        - admin
+      operationId: getAdminDetail
+      parameters:
+        - $ref: "#/components/parameters/adminId"
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+
+    put:
+      tags:
+        - admin
+      operationId: updateAdminDetail
+      parameters:
+        - $ref: "#/components/parameters/adminId"
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+
+    delete:
+      tags:
+        - admin
+      operationId: deleteAdmin
+      parameters:
+        - $ref: "#/components/parameters/adminId"
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  
+  /auth/login:
+    post:
+      tags:
+        - admin
+      operationId: adminLogin
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+
+  /auth/logout:
+    post:
+      tags:
+        - admin
+      operationId: adminLogout
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+      
+components:
+  responses:
+    scheduleResponse:
+      description: detail user response
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              alarm_patterns:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlarmPatterns"
+
+
+    successResponse:
+      description: Successful operation
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - status
+            properties:
+              status:
+                type: string
+
+    signinResponse:
+      description: Successful signin
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - token
+            properties:
+              token:
+                type: string
+              subscription:
+                $ref: "#/components/schemas/Subscription"
+              preference:
+                type: string
+
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+
+    adminId:
+      name: adminId
+      in: path
+      required: true
+      schema:
+        type: string
+
+  schemas:
+    # base types
+    Pong:
+      type: object
+      required:
+        - ping
+      properties:
+        ping:
+          type: string
+          example: pong
+    
+    JWT:
+      type: object
+      required:
+        - token
+      properties:
+        token:
+          type: string
+    
+    Subscription:
+      type: object
+      required:
+        - is_active
+        - tier
+        - expire_date
+      properties:
+        is_active:
+          type: boolean
+        tier:
+          type: string
+        expire_date:
+          type: string
+    
+    AlarmPatterns:
+      type: object
+      properties:
+          start_time:
+            $ref: "#/components/schemas/AlarmDetails"
+          stop_time:
+            $ref: "#/components/schemas/AlarmDetails"
+            
+    AlarmDetails:
+      type: object 
+      properties:
+        alarm_time:
+          type: string
+        label:
+          type: string
+        

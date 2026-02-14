@@ -1,34 +1,116 @@
-import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
+import { NavigationContainer } from "@react-navigation/native";
+import { useEffect, useState } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import LoginScreen from "./screens/LoginScreen";
 import SignUpScreen from "./screens/SignUpScreen";
-import { RootStackParamList } from "./types/navigation";
+import HomeScreen from "./screens/HomeScreen";
+import SettingsScreen from "./screens/SettingsScreen";
+import ProfileScreen from "./screens/ProfileScreen";
+import { RootStackParamList, MainTabParamList } from "./types/navigation";
+import { colors, tabBarStyles, navigationTheme } from "./theme";
+import { clearAuthToken, getAuthToken, isTokenExpired } from "./services";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+const Tab = createBottomTabNavigator<MainTabParamList>();
 
-const DarkTheme = {
-  ...DefaultTheme,
-  colors: {
-    ...DefaultTheme.colors,
-    background: "#1a1a1a",
-  },
-};
+function MainTabs() {
+  return (
+    <Tab.Navigator
+      initialRouteName="Home"
+      backBehavior="history"
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarStyle: tabBarStyles.tabBar,
+        tabBarShowLabel: false,
+        tabBarIcon: ({ focused }) => {
+          let iconName: keyof typeof Ionicons.glyphMap;
+
+          if (route.name === "Settings") {
+            iconName = focused ? "settings" : "settings-outline";
+          } else if (route.name === "Home") {
+            iconName = focused ? "home" : "home-outline";
+          } else {
+            iconName = focused ? "person" : "person-outline";
+          }
+
+          return (
+            <Ionicons
+              name={iconName}
+              size={26}
+              color={focused ? colors.primary : colors.textSecondary}
+            />
+          );
+        },
+      })}
+    >
+      <Tab.Screen name="Settings" component={SettingsScreen} />
+      <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Profile" component={ProfileScreen} />
+    </Tab.Navigator>
+  );
+}
 
 export default function App() {
+  const [initialRoute, setInitialRoute] = useState<keyof RootStackParamList>(
+    "Login"
+  );
+  const [isBooting, setIsBooting] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const token = await getAuthToken();
+        if (!token) {
+          if (!active) return;
+          setInitialRoute("Login");
+          return;
+        }
+        const expired = await isTokenExpired();
+        if (expired) {
+          await clearAuthToken();
+          if (!active) return;
+          setInitialRoute("Login");
+        } else {
+          if (!active) return;
+          setInitialRoute("MainTabs");
+        }
+      } catch {
+        if (!active) return;
+        setInitialRoute("Login");
+      } finally {
+        if (active) {
+          setIsBooting(false);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (isBooting) {
+    return null;
+  }
+
   return (
-    <SafeAreaProvider style={{ backgroundColor: "#1a1a1a" }}>
-      <NavigationContainer theme={DarkTheme}>
+    <SafeAreaProvider style={{ backgroundColor: colors.background }}>
+      <NavigationContainer theme={navigationTheme}>
         <Stack.Navigator
-          initialRouteName="Login"
+          initialRouteName={initialRoute}
           screenOptions={{
             headerShown: false,
             animation: "fade",
-            contentStyle: { backgroundColor: "#1a1a1a" },
+            contentStyle: { backgroundColor: colors.background },
           }}
         >
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="SignUp" component={SignUpScreen} />
+          <Stack.Screen name="MainTabs" component={MainTabs} />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

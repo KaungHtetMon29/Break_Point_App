@@ -12,9 +12,10 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { LoginScreenNavigationProp } from "../types/navigation";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
+import { getUserData } from "../services";
 
 type LoginScreenProps = {
   navigation: LoginScreenNavigationProp;
@@ -23,40 +24,31 @@ type LoginScreenProps = {
 export default function LoginScreen({ navigation }: LoginScreenProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
 
-  const { response, signInWithGoogle, getUserInfo, isReady } = useGoogleAuth();
-
-  useEffect(() => {
-    handleGoogleResponse();
-  }, [response]);
-
-  const handleGoogleResponse = async () => {
-    if (response?.type === "success") {
-      setIsLoading(true);
-      const { authentication } = response;
-      if (authentication?.accessToken) {
-        const userInfo = await getUserInfo(authentication.accessToken);
-        if (userInfo) {
-          Alert.alert(
-            "Google Sign In Success",
-            `Welcome, ${userInfo.name}!\nEmail: ${userInfo.email}`,
-            [{ text: "OK" }]
-          );
-          // TODO: Navigate to home screen or save user session
-        }
-      }
-      setIsLoading(false);
-    } else if (response?.type === "error") {
-      Alert.alert("Error", "Google sign in failed. Please try again.");
-    }
-  };
+  const { signInWithGoogle, isSigningIn, error, isReady } = useGoogleAuth();
 
   const handleGoogleSignIn = async () => {
-    try {
-      await signInWithGoogle();
-    } catch (error) {
-      Alert.alert("Error", "Failed to initiate Google sign in");
+    const user = await signInWithGoogle();
+
+    if (user) {
+      try {
+        // After signin, token/userdata/subscription/preference are stored by authService.googleAuth
+
+        // Navigate to Home screen
+        navigation.reset({
+          index: 0,
+          routes: [{ name: "MainTabs" }],
+        });
+      } catch (fetchError) {
+        console.error("Error fetching preferences:", fetchError);
+        // Still navigate even if preferences fetch fails
+        navigation.reset({
+          index: 0,
+          routes: [{ name: "MainTabs" }],
+        });
+      }
+    } else if (error) {
+      Alert.alert("Error", error);
     }
   };
 
@@ -116,7 +108,10 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
 
           {/* Bottom Section */}
           <View style={styles.bottomSection}>
-            <TouchableOpacity style={styles.loginButton}>
+            <TouchableOpacity
+              style={styles.loginButton}
+              onPress={() => navigation.replace("MainTabs")}
+            >
               <Text style={styles.loginButtonText}>Log In</Text>
             </TouchableOpacity>
 
@@ -126,9 +121,9 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
               <TouchableOpacity
                 style={[styles.socialButton, !isReady && styles.disabledButton]}
                 onPress={handleGoogleSignIn}
-                disabled={!isReady || isLoading}
+                disabled={!isReady || isSigningIn}
               >
-                {isLoading ? (
+                {isSigningIn ? (
                   <ActivityIndicator size="small" color="#333" />
                 ) : (
                   <Text style={styles.socialIcon}>G</Text>
