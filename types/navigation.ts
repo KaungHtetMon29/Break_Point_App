@@ -5,6 +5,7 @@ export type RootStackParamList = {
   Login: undefined;
   SignUp: undefined;
   MainTabs: undefined;
+  PreferenceHistory: undefined;
 };
 
 export type MainTabParamList = {
@@ -32,4 +33,9 @@ export type SettingsScreenNavigationProp = BottomTabNavigationProp<
 export type ProfileScreenNavigationProp = BottomTabNavigationProp<
   MainTabParamList,
   "Profile"
+>;
+
+export type PreferenceHistoryScreenNavigationProp = NativeStackNavigationProp<
+  RootStackParamList,
+  "PreferenceHistory"
 >;

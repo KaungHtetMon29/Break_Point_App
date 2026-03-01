@@ -9,9 +9,11 @@ import SignUpScreen from "./screens/SignUpScreen";
 import HomeScreen from "./screens/HomeScreen";
 import SettingsScreen from "./screens/SettingsScreen";
 import ProfileScreen from "./screens/ProfileScreen";
+import PreferenceHistoryScreen from "./screens/PreferenceHistoryScreen";
 import { RootStackParamList, MainTabParamList } from "./types/navigation";
 import { colors, tabBarStyles, navigationTheme } from "./theme";
-import { clearAuthToken, getAuthToken, isTokenExpired } from "./services";
+import { clearAuthToken, getAuthToken, isTokenExpired, userService } from "./services";
+import { StripeProvider } from '@stripe/stripe-react-native';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -54,11 +56,25 @@ function MainTabs() {
 }
 
 export default function App() {
+  const [publishableKey, setPublishableKey] = useState<string | null>(null);
+  const [isStripeReady, setIsStripeReady] = useState(false);
+  const fetchPublishableKey = async () => {
+    try {
+      const key = await userService.getStripePublishableKey();
+      setPublishableKey(key.stripe_key);
+      setIsStripeReady(true);
+    } catch {
+      setPublishableKey(null);
+      setIsStripeReady(false);
+    }
+  };
   const [initialRoute, setInitialRoute] = useState<keyof RootStackParamList>(
     "Login"
   );
   const [isBooting, setIsBooting] = useState(true);
-
+  useEffect(() => {
+    fetchPublishableKey();
+  }, []);
   useEffect(() => {
     let active = true;
     (async () => {
@@ -93,11 +109,12 @@ export default function App() {
     };
   }, []);
 
-  if (isBooting) {
+  if (isBooting || !isStripeReady || !publishableKey) {
     return null;
   }
 
   return (
+    <StripeProvider publishableKey={publishableKey}>
     <SafeAreaProvider style={{ backgroundColor: colors.background }}>
       <NavigationContainer theme={navigationTheme}>
         <Stack.Navigator
@@ -111,8 +128,13 @@ export default function App() {
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="SignUp" component={SignUpScreen} />
           <Stack.Screen name="MainTabs" component={MainTabs} />
+          <Stack.Screen
+            name="PreferenceHistory"
+            component={PreferenceHistoryScreen}
+          />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>
+    </StripeProvider>
   );
 }

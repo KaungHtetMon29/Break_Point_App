@@ -15,16 +15,18 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useState } from "react";
 import { SignUpScreenNavigationProp } from "../types/navigation";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
-import { getUserData, userService, setUserPreferences } from "../services";
+import { getUserData, userService, setUserPreferences, authService } from "../services";
 
 type SignUpScreenProps = {
   navigation: SignUpScreenNavigationProp;
 };
 
 export default function SignUpScreen({ navigation }: SignUpScreenProps) {
+  const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { signInWithGoogle, isSigningIn, error, isReady } = useGoogleAuth();
 
@@ -63,6 +65,36 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
     }
   };
 
+  const handleSignUp = async () => {
+    const trimmedEmail = email.trim();
+    const trimmedName = fullName.trim();
+    if (!trimmedEmail || !trimmedName || !password || !confirmPassword) {
+      Alert.alert("Missing info", "Please fill out all fields.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      Alert.alert("Password mismatch", "Passwords do not match.");
+      return;
+    }
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await authService.signUp({
+        email: trimmedEmail,
+        username: trimmedName,
+        password,
+      });
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "MainTabs" }],
+      });
+    } catch {
+      Alert.alert("Sign up failed", "Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
@@ -93,10 +125,20 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
           {/* Orange Form Section */}
           <View style={styles.formSection}>
             <View style={styles.formContent}>
-              <Text style={styles.inputLabel}>Full name</Text>
+              <Text style={styles.inputLabel}>Email</Text>
               <TextInput
                 style={styles.input}
                 placeholder="example@example.com"
+                placeholderTextColor="#999"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+              <Text style={styles.inputLabel}>Full name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Jane Doe"
                 placeholderTextColor="#999"
                 value={fullName}
                 onChangeText={setFullName}
@@ -141,8 +183,16 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
               </View>
             </View>
 
-            <TouchableOpacity style={styles.signUpButton}>
-              <Text style={styles.signUpButtonText}>Sign Up</Text>
+            <TouchableOpacity
+              style={styles.signUpButton}
+              onPress={handleSignUp}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.signUpButtonText}>Sign Up</Text>
+              )}
             </TouchableOpacity>
 
             <View style={styles.socialButtons}>
@@ -187,9 +237,9 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   headerSection: {
-    paddingTop: 50,
+    paddingTop: 32,
     paddingHorizontal: 24,
-    paddingBottom: 30,
+    paddingBottom: 20,
     alignItems: "center",
   },
   headerRow: {
@@ -226,9 +276,9 @@ const styles = StyleSheet.create({
   },
   formSection: {
     backgroundColor: "#f58220",
-    paddingTop: 30,
+    paddingTop: 20,
     paddingHorizontal: 24,
-    paddingBottom: 20,
+    paddingBottom: 14,
   },
   formContent: {
     width: "100%",

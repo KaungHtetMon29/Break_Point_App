@@ -9,6 +9,7 @@ import axios, {
   InternalAxiosRequestConfig,
 } from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { GenerateBreakpointResponse } from "./types";
 import { API_URL } from "../config/api";
 
 // Storage keys
@@ -16,6 +17,9 @@ const AUTH_TOKEN_KEY = "auth_token";
 const USER_DATA_KEY = "user_data";
 const USER_PREFERENCES_KEY = "user_preferences";
 const USER_SUBSCRIPTION_KEY = "user_subscription";
+const BREAKPOINT_PREF_UUID_KEY = "breakpoint_pref_uuid";
+const BREAKPOINT_DATA_KEY = "breakpoint_data";
+const BREAKPOINT_GENERATE_KEY = "breakpoint_generate";
 
 // JWT payload interface (matches backend JWT structure)
 export interface JWTPayload {
@@ -194,6 +198,12 @@ export interface StoredPreferences {
   preference: string | null;
 }
 
+export interface StoredBreakpointData {
+  uuid: string;
+  is_active: boolean;
+  techniques: string;
+}
+
 // Helper functions for user preferences management
 export const setUserPreferences = async (
   preferences: StoredPreferences | null
@@ -224,6 +234,55 @@ export const getUserPreferencesFromStorage =
 export const clearUserPreferences = async (): Promise<void> => {
   await AsyncStorage.removeItem(USER_PREFERENCES_KEY);
 };
+
+export const setBreakpointPrefUuid = async (
+  prefUuid: string | null
+): Promise<void> => {
+  if (prefUuid) {
+    await AsyncStorage.setItem(BREAKPOINT_PREF_UUID_KEY, prefUuid);
+  } else {
+    await AsyncStorage.removeItem(BREAKPOINT_PREF_UUID_KEY);
+  }
+};
+
+export const getBreakpointPrefUuidFromStorage =
+  async (): Promise<string | null> => {
+    return AsyncStorage.getItem(BREAKPOINT_PREF_UUID_KEY);
+  };
+
+export const setBreakpointData = async (
+  data: StoredBreakpointData | null
+): Promise<void> => {
+  if (data === null) {
+    await AsyncStorage.setItem(BREAKPOINT_DATA_KEY, JSON.stringify(null));
+  } else {
+    await AsyncStorage.setItem(BREAKPOINT_DATA_KEY, JSON.stringify(data));
+  }
+};
+
+
+export const setBreakpointGenerateData = async (
+  data: GenerateBreakpointResponse | null
+): Promise<void> => {
+  if (data === null) {
+    await AsyncStorage.setItem(BREAKPOINT_GENERATE_KEY, JSON.stringify(null));
+  } else {
+    await AsyncStorage.setItem(BREAKPOINT_GENERATE_KEY, JSON.stringify(data));
+  }
+};
+
+export const getBreakpointGenerateData =
+  async (): Promise<GenerateBreakpointResponse | null> => {
+    const data = await AsyncStorage.getItem(BREAKPOINT_GENERATE_KEY);
+    if (data) {
+      try {
+        return JSON.parse(data) as GenerateBreakpointResponse | null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
 
 // Subscription storage
 export interface StoredSubscription {

@@ -45,13 +45,23 @@ paths:
       tags:
         - auth
       operationId: signUp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                username:
+                  type: string
+                password:
+                  type: string
       responses:
         '200':
-          description: detail signup response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/JWT'
+          $ref: "#/components/responses/signinResponse"
+
   /google/auth:
     post:
       tags:
@@ -66,16 +76,20 @@ paths:
       tags:
         - auth
       operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
       responses:
         '200':
-          description: detail signup response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
+          $ref: "#/components/responses/signinResponse"
   
   /logout:
     post:
@@ -117,6 +131,57 @@ paths:
                   properties:
                     status:
                       type: string
+
+  /stripe_key:
+    get:
+      tags:
+        - user
+      operationId: getStripePublishableAPIKey
+      responses:
+        '200':
+          description: return publishable stripe key
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - stripe_key
+                properties:
+                  stripe_key:
+                    type: string
+
+  /subscribe:
+    post:
+      tags:
+        - user
+      operationId: subscirbePlan
+      responses:
+        '200':
+          description: create payment intent
+          content:
+            application/json:
+              schema:
+                type: object
+                $ref: "#/components/schemas/SubscribeResponse"
+                
+  /accept_consent:
+    post:
+      tags:
+        - user
+      operationId: acceptConsent
+      responses:
+        '200':
+          description: accept user consent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - success
+                      - failed
 
   /{id}:
     parameters:
@@ -208,11 +273,148 @@ paths:
               schema:
                 type: object
                 properties:
+                  uuid:
+                    type: string
                   preference:
                     type: string
                   updated_at:
                     type: string
 
+  /{id}/preference_history:
+    parameters:
+        - $ref: "#/components/parameters/id"
+    get:
+      tags:
+        - user
+      operationId: getUserPreferenceHistory 
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    uuid:
+                      type: string
+                    is_active:
+                      type: boolean
+                    preference:
+                      type: string
+  
+  /{id}/choose_preference:
+    parameters:
+          - $ref: "#/components/parameters/id"
+    get:
+      tags:
+        - user
+      operationId: chooseUserPreference
+      responses:
+        '200':
+          description: choose user preference
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  preference:
+                    type: object
+                    properties:
+                      preference:
+                        type: string
+                        description: user preference
+                      uuid:
+                        type: string
+                        description: user uuid
+                      is_active:
+                        type: boolean
+                  breakpoint:
+                    type: object
+                    properties:
+                      uuid:
+                        type: string
+                      is_active:
+                        type: boolean
+                      techniques:
+                        type: string
+  
+  /activity:
+    post:
+      tags:
+        - user
+      operationId: getUserActivity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum: ["snooze","skip","break"]
+                time_block:
+                  type: string
+                  enum: ["morning","evening","night"]
+                alarm_time:
+                  type: string
+                prefernce_uuid:
+                  type: string
+      responses:
+        '200':
+          description: record user activity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: ["success","failed"]
+  
+  /can_generate_adaptive:
+    get:
+      tags:
+        - user
+      operationId: canGenerateAdaptive
+      responses:
+        '200':
+          description: check if user can generate adaptive alarm
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  days_left:
+                    type: integer
+                  can_generate:
+                    type: boolean
+  
+  /get_adaptive_alarm:
+    get:
+      tags:
+        - breakpoints
+      operationId: getAdaptiveAlarm
+      responses:
+        '200':
+          description: get adaptive alarm
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    uuid:
+                      type: string
+                    pref_uuid:
+                      type: string
+                    is_active:
+                      type: boolean
+                    techniques:
+                      type: string
 
   /{id}/techniques:
     parameters:
@@ -233,7 +435,7 @@ paths:
                   properties:
                     uuid:
                       type: string
-                    preference_uuid:
+                    pref_uuid:
                       type: string
                     is_active:
                       type: boolean
@@ -279,6 +481,40 @@ paths:
                       type: string
                     created_at:
                       type: string
+
+  /{id}/schedule_update:
+    description: id is break schedule id
+    parameters:
+        - $ref: "#/components/parameters/id"
+    post:
+      tags:
+        - breakpoints
+      operationId: updateBreakSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                alarm_patterns:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/AlarmPatterns"
+      responses:
+        '200':
+          description: detail user response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    status:
+                      type: string
+                      enum: ["success","failed"]
+
   /{id}/current:
     get:
       tags:
@@ -549,6 +785,10 @@ components:
           schema:
             type: object
             properties:
+              uuid:
+                type: string
+              pref_uuid:
+                type: string
               alarm_patterns:
                 type: array
                 items:
@@ -646,4 +886,11 @@ components:
           type: string
         label:
           type: string
-        
+    
+    SubscribeResponse:
+      type: object
+      properties:
+        customer_id:
+          type: string
+        payment_intent:
+          type: string 

@@ -15,7 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useState } from "react";
 import { LoginScreenNavigationProp } from "../types/navigation";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
-import { getUserData } from "../services";
+import { authService } from "../services";
 
 type LoginScreenProps = {
   navigation: LoginScreenNavigationProp;
@@ -24,6 +24,7 @@ type LoginScreenProps = {
 export default function LoginScreen({ navigation }: LoginScreenProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { signInWithGoogle, isSigningIn, error, isReady } = useGoogleAuth();
 
@@ -49,6 +50,26 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
       }
     } else if (error) {
       Alert.alert("Error", error);
+    }
+  };
+
+  const handleLogin = async () => {
+    if (!email.trim() || !password) {
+      Alert.alert("Missing info", "Please enter email and password.");
+      return;
+    }
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await authService.login({ email: email.trim(), password });
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "MainTabs" }],
+      });
+    } catch {
+      Alert.alert("Login failed", "Please check your credentials.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -110,9 +131,14 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           <View style={styles.bottomSection}>
             <TouchableOpacity
               style={styles.loginButton}
-              onPress={() => navigation.replace("MainTabs")}
+              onPress={handleLogin}
+              disabled={isSubmitting}
             >
-              <Text style={styles.loginButtonText}>Log In</Text>
+              {isSubmitting ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.loginButtonText}>Log In</Text>
+              )}
             </TouchableOpacity>
 
             <Text style={styles.orText}>or sign up with</Text>

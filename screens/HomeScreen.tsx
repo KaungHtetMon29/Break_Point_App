@@ -7,29 +7,39 @@ import {
   Switch,
   Modal,
   TouchableOpacity,
+  TextInput,
   Platform,
   NativeModules,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useFocusEffect } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 import * as Notifications from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import PreferencesModal from "../components/PreferencesModal";
 import SubscriptionModal from "../components/SubscriptionModal";
 import {
   getUserData,
   JWTPayload,
+  getAuthToken,
   getUserSubscriptionFromStorage,
   getUserPreferencesFromStorage,
+  getBreakpointPrefUuidFromStorage,
+  getBreakpointGenerateData,
   setUserPreferences,
   setUserSubscription,
+  setBreakpointGenerateData,
   userService,
   plansService,
   breakpointsService,
   AlarmPatterns,
   BreakpointTechnique,
 } from "../services";
+import { API_URL } from "../config/api";
 
 interface AlarmItem {
   id: string;
@@ -38,10 +48,31 @@ interface AlarmItem {
   enabled: boolean;
 }
 
+// HARDCODED ALARM
+const HARDCODED_ALARMS: AlarmItem[] = [
+  { id: "hardcoded-1", time: "12:40", label: "Start work", enabled: true },
+  { id: "hardcoded-2", time: "12:50", label: "Take a break", enabled: true },
+  { id: "hardcoded-3", time: "13:00", label: "Lunch break", enabled: true },
+];
+
 const fallbackTimes = ["9:00 AM", "11:00 AM", "1:00 PM", "3:00 PM", "5:00 PM"];
 
 const NOTIFICATION_MAP_KEY = "alarm_notification_map";
+const NATIVE_ALARM_MAP_KEY = "native_alarm_map";
+const NATIVE_ALARM_HISTORY_KEY = "native_alarm_history";
 const GLOBAL_ALARM_OFF_KEY = "global_alarm_off_until";
+const ALARM_CHANNEL_ID = "alarm-channel";
+const DEFAULT_WORKING_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+const DAY_ORDER = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_TO_WEEKDAY: Record<string, number> = {
+  Sun: 1,
+  Mon: 2,
+  Tue: 3,
+  Wed: 4,
+  Thu: 5,
+  Fri: 6,
+  Sat: 7,
+};
 const { AlarmScheduler } = NativeModules as {
   AlarmScheduler?: {
     scheduleDailyAlarm: (
@@ -49,7 +80,10 @@ const { AlarmScheduler } = NativeModules as {
       minute: number,
       id: number,
       label: string,
-      timeText: string
+      timeText: string,
+      apiBaseUrl: string,
+      authToken: string,
+      prefUuid: string
     ) => void;
     cancelAlarm: (id: number) => void;
     canScheduleExactAlarms: () => Promise<boolean>;
@@ -66,11 +100,22 @@ export default function HomeScreen() {
   const [notificationsReady, setNotificationsReady] = useState(false);
   const [globalOffUntil, setGlobalOffUntil] = useState<string | null>(null);
   const [showGlobalOffPicker, setShowGlobalOffPicker] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [draftAlarms, setDraftAlarms] = useState<AlarmItem[]>([]);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [activeTimeAlarmId, setActiveTimeAlarmId] = useState<string | null>(
+    null
+  );
+  const [timePickerValue, setTimePickerValue] = useState(new Date());
   const [offDaysCount, setOffDaysCount] = useState(1);
   const [isGenerating, setIsGenerating] = useState(false);
-  const alarmsRef = useRef<AlarmItem[]>([]);
+  const [workingDays, setWorkingDays] = useState<string[]>(DEFAULT_WORKING_DAYS);
+  const [useNativeScheduler, setUseNativeScheduler] = useState(true);
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [consentSubmitting, setConsentSubmitting] = useState(false);
+  const [consentAcknowledged, setConsentAcknowledged] = useState(false);
   const notificationMapRef = useRef<Record<string, string>>({});
-  const visibleAlarms = useMemo(() => {
+  const renderedAlarms = useMemo(() => {
     const seen = new Set<string>();
     return alarms.filter((alarm) => {
       const key = `${alarm.time}|${alarm.label}`;
@@ -79,9 +124,16 @@ export default function HomeScreen() {
       return true;
     });
   }, [alarms]);
-  const useNativeAlarm =
-    Platform.OS === "android" &&
-    typeof AlarmScheduler?.scheduleDailyAlarm === "function";
+  const useNativeCandidate = useMemo(
+    () =>
+      Platform.OS === "android" &&
+      typeof AlarmScheduler?.scheduleDailyAlarm === "function",
+    []
+  );
+  const useNativeAlarm = useMemo(
+    () => useNativeCandidate && useNativeScheduler,
+    [useNativeCandidate, useNativeScheduler]
+  );
 
   const toDateKey = (date: Date) => {
     const year = date.getFullYear();
@@ -100,6 +152,81 @@ export default function HomeScreen() {
     if (!fullName) return "there";
     return fullName.split(/\s+/)[0];
   }, [userData?.name]);
+
+  const normalizeWorkingDays = (days?: string[] | null) => {
+    if (!Array.isArray(days)) return DEFAULT_WORKING_DAYS;
+    const normalized = days.filter((day) => DAY_TO_WEEKDAY[day]);
+    return normalized.length ? normalized : DEFAULT_WORKING_DAYS;
+  };
+
+  const parsePreferenceValue = (value?: string | null) => {
+    if (!value || value.trim() === "") return null;
+    try {
+      return JSON.parse(value) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  };
+
+  const valueHasContent = (value: unknown): boolean => {
+    if (value === null || value === undefined) return false;
+    if (typeof value === "string") return value.trim() !== "";
+    if (typeof value === "number") return !Number.isNaN(value);
+    if (typeof value === "boolean") return true;
+    if (Array.isArray(value)) {
+      return value.some((entry) => valueHasContent(entry));
+    }
+    if (typeof value === "object") {
+      return Object.values(value as Record<string, unknown>).some((entry) =>
+        valueHasContent(entry)
+      );
+    }
+    return false;
+  };
+
+  const hasPreferenceData = (value?: string | null) => {
+    const parsed = parsePreferenceValue(value);
+    if (!parsed) return false;
+    return valueHasContent(parsed);
+  };
+
+  const updatePreferenceGate = (
+    needsSubscription: boolean,
+    needsPreferences: boolean
+  ) => {
+    if (needsSubscription) {
+      setShowSubscriptionModal(true);
+      setShowConsentModal(false);
+      setShowPreferencesModal(false);
+      return;
+    }
+    setShowSubscriptionModal(false);
+    if (needsPreferences) {
+      if (consentAcknowledged) {
+        setShowConsentModal(false);
+        setShowPreferencesModal(true);
+      } else {
+        setShowConsentModal(true);
+        setShowPreferencesModal(false);
+      }
+      return;
+    }
+    setShowConsentModal(false);
+    setShowPreferencesModal(false);
+  };
+
+  const ensureAlarmChannel = async () => {
+    if (Platform.OS !== "android") return;
+    await Notifications.setNotificationChannelAsync(ALARM_CHANNEL_ID, {
+      name: "Alarms",
+      importance: Notifications.AndroidImportance.MAX,
+      sound: "default",
+      vibrationPattern: [0, 500, 500, 500],
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
+  };
+
+  const getTodayDayId = () => DAY_ORDER[new Date().getDay()];
 
   const addDays = (date: Date, days: number) => {
     const next = new Date(date);
@@ -153,6 +280,25 @@ export default function HomeScreen() {
     return { hour, minute };
   };
 
+  const formatAlarmTime = (date: Date) => {
+    return date.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  };
+
+  const getPickerDateForTime = (time: string) => {
+    const parsed = parseAlarmTime(time);
+    const next = new Date();
+    if (!parsed) {
+      next.setHours(9, 0, 0, 0);
+      return next;
+    }
+    next.setHours(parsed.hour, parsed.minute, 0, 0);
+    return next;
+  };
+
   const loadGlobalOffUntil = async () => {
     const stored = await AsyncStorage.getItem(GLOBAL_ALARM_OFF_KEY);
     const today = getLocalDateKey();
@@ -176,7 +322,7 @@ export default function HomeScreen() {
     const untilKey = toDateKey(untilDate);
     await AsyncStorage.setItem(GLOBAL_ALARM_OFF_KEY, untilKey);
     setGlobalOffUntil(untilKey);
-    await cancelAllScheduled();
+    await cancelAllScheduled(renderedAlarms);
   };
 
   const loadNotificationMap = async () => {
@@ -202,17 +348,56 @@ export default function HomeScreen() {
     );
   };
 
-  const cancelAllScheduled = async () => {
+  const loadNativeAlarmMap = async () => {
+    const raw = await AsyncStorage.getItem(NATIVE_ALARM_MAP_KEY);
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw) as Record<string, boolean>;
+      return parsed || {};
+    } catch {
+      return {};
+    }
+  };
+
+  const saveNativeAlarmMap = async (map: Record<string, boolean>) => {
+    await AsyncStorage.setItem(NATIVE_ALARM_MAP_KEY, JSON.stringify(map));
+  };
+
+  const loadNativeAlarmHistory = async () => {
+    const raw = await AsyncStorage.getItem(NATIVE_ALARM_HISTORY_KEY);
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw) as Record<string, boolean>;
+      return parsed || {};
+    } catch {
+      return {};
+    }
+  };
+
+  const saveNativeAlarmHistory = async (history: Record<string, boolean>) => {
+    await AsyncStorage.setItem(
+      NATIVE_ALARM_HISTORY_KEY,
+      JSON.stringify(history)
+    );
+  };
+
+  const cancelAllScheduled = async (alarmsToCancel: AlarmItem[]) => {
     if (useNativeAlarm) {
-      for (const alarm of alarmsRef.current) {
-        AlarmScheduler?.cancelAlarm(getAlarmRequestId(alarm.id));
+      const map = await loadNativeAlarmMap();
+      const history = await loadNativeAlarmHistory();
+      const ids = new Set<string>([
+        ...Object.keys(map),
+        ...Object.keys(history),
+        ...alarmsToCancel.map((alarm) => alarm.id),
+      ]);
+      for (const id of ids) {
+        AlarmScheduler?.cancelAlarm(getAlarmRequestId(id));
       }
+      await saveNativeAlarmMap({});
+      await saveNativeAlarmHistory({});
       return;
     }
-    const ids = Object.values(notificationMapRef.current);
-    for (const id of ids) {
-      await Notifications.cancelScheduledNotificationAsync(id);
-    }
+    await Notifications.cancelAllScheduledNotificationsAsync();
     notificationMapRef.current = {};
     await saveNotificationMap();
   };
@@ -220,12 +405,28 @@ export default function HomeScreen() {
   const cancelAlarm = async (id: string) => {
     if (useNativeAlarm) {
       AlarmScheduler?.cancelAlarm(getAlarmRequestId(id));
+      const map = await loadNativeAlarmMap();
+      const history = await loadNativeAlarmHistory();
+      if (map[id]) {
+        delete map[id];
+        await saveNativeAlarmMap(map);
+      }
+      if (history[id]) {
+        delete history[id];
+        await saveNativeAlarmHistory(history);
+      }
       return;
     }
-    const existing = notificationMapRef.current[id];
-    if (existing) {
-      await Notifications.cancelScheduledNotificationAsync(existing);
-      delete notificationMapRef.current[id];
+    const entries = Object.entries(notificationMapRef.current);
+    let changed = false;
+    for (const [key, value] of entries) {
+      if (key === id || key.startsWith(`${id}|`)) {
+        await Notifications.cancelScheduledNotificationAsync(value);
+        delete notificationMapRef.current[key];
+        changed = true;
+      }
+    }
+    if (changed) {
       await saveNotificationMap();
     }
   };
@@ -234,50 +435,68 @@ export default function HomeScreen() {
     if (useNativeAlarm) {
       const trigger = parseAlarmTime(alarm.time);
       if (!trigger) return;
+      const [authToken, prefUuid] = await Promise.all([
+        getAuthToken(),
+        getBreakpointPrefUuidFromStorage(),
+      ]);
+      AlarmScheduler?.cancelAlarm(getAlarmRequestId(alarm.id));
       AlarmScheduler?.scheduleDailyAlarm(
         trigger.hour,
         trigger.minute,
         getAlarmRequestId(alarm.id),
         alarm.label,
-        alarm.time
+        alarm.time,
+        API_URL,
+        authToken || "",
+        prefUuid || ""
       );
+      const map = await loadNativeAlarmMap();
+      const history = await loadNativeAlarmHistory();
+      map[alarm.id] = true;
+      await saveNativeAlarmMap(map);
+      history[alarm.id] = true;
+      await saveNativeAlarmHistory(history);
       return;
     }
     await cancelAlarm(alarm.id);
+    await ensureAlarmChannel();
     const trigger = parseAlarmTime(alarm.time);
     if (!trigger) return;
-    const notificationId = await Notifications.scheduleNotificationAsync({
-      content: {
-        title: "Alarm",
-        body: `${alarm.label} • ${alarm.time}`,
-        sound: true,
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
-        hour: trigger.hour,
-        minute: trigger.minute,
-        repeats: true,
-      },
-    });
-    notificationMapRef.current[alarm.id] = notificationId;
+    const scheduledDays = normalizeWorkingDays(workingDays);
+    for (const day of scheduledDays) {
+      const weekday = DAY_TO_WEEKDAY[day];
+      if (!weekday) continue;
+      const notificationId = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "Alarm",
+          body: `${alarm.label} • ${alarm.time}`,
+          sound: true,
+          channelId: ALARM_CHANNEL_ID,
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
+          hour: trigger.hour,
+          minute: trigger.minute,
+          weekday,
+          repeats: true,
+        },
+      });
+      notificationMapRef.current[`${alarm.id}|${day}`] = notificationId;
+    }
     await saveNotificationMap();
   };
 
   useEffect(() => {
-    alarmsRef.current = visibleAlarms;
-  }, [visibleAlarms]);
-
-  useEffect(() => {
     let active = true;
-    if (useNativeAlarm) {
+    setNotificationsReady(false);
+    if (useNativeCandidate && useNativeScheduler) {
       (async () => {
         await loadGlobalOffUntil();
         const canSchedule = await AlarmScheduler?.canScheduleExactAlarms();
         if (!active) return;
         if (!canSchedule) {
           AlarmScheduler?.requestExactAlarmPermission();
-          setNotificationsReady(false);
-          return;
+          if (!active) return;
         }
         setNotificationsReady(true);
       })();
@@ -286,8 +505,14 @@ export default function HomeScreen() {
       };
     }
     (async () => {
+      await ensureAlarmChannel();
       const permission = await Notifications.requestPermissionsAsync();
-      if (!permission.granted) return;
+      if (!permission.granted) {
+        if (active) {
+          setNotificationsReady(false);
+        }
+        return;
+      }
       await loadGlobalOffUntil();
       await loadNotificationMap();
       if (!active) return;
@@ -296,17 +521,17 @@ export default function HomeScreen() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [useNativeCandidate, useNativeScheduler]);
 
   const syncNotifications = useCallback(async () => {
-    await cancelAllScheduled();
+    await cancelAllScheduled(renderedAlarms);
     if (isGlobalOffToday) return;
-    for (const alarm of alarmsRef.current) {
+    for (const alarm of renderedAlarms) {
       if (alarm.enabled) {
         await scheduleAlarm(alarm);
       }
     }
-  }, [isGlobalOffToday]);
+  }, [isGlobalOffToday, workingDays, useNativeAlarm, renderedAlarms]);
 
   useEffect(() => {
     if (!notificationsReady) return;
@@ -318,7 +543,7 @@ export default function HomeScreen() {
     return () => {
       active = false;
     };
-  }, [notificationsReady, alarms, syncNotifications]);
+  }, [notificationsReady, renderedAlarms, syncNotifications]);
 
   const mapAlarmPatternsToAlarms = (
     patterns?: AlarmPatterns[],
@@ -335,7 +560,6 @@ export default function HomeScreen() {
           label: stop.label || "Break",
           enabled: true,
         });
-        return;
       }
       const start = pattern?.start_time;
       if (start?.alarm_time) {
@@ -347,7 +571,21 @@ export default function HomeScreen() {
         });
       }
     });
-    return mapped.length ? mapped : null;
+    if (!mapped.length) return null;
+    const sorted = mapped
+      .map((alarm, index) => {
+        const parsed = parseAlarmTime(alarm.time);
+        const minutes = parsed ? parsed.hour * 60 + parsed.minute : null;
+        return { alarm, index, minutes };
+      })
+      .sort((a, b) => {
+        if (a.minutes === null && b.minutes === null) return a.index - b.index;
+        if (a.minutes === null) return 1;
+        if (b.minutes === null) return -1;
+        return a.minutes - b.minutes;
+      })
+      .map((entry) => entry.alarm);
+    return sorted;
   };
 
   const mapTechniquesToAlarms = (
@@ -404,6 +642,24 @@ export default function HomeScreen() {
         console.log("Screen focused - gating using googleAuth-stored subscription and preference");
 
         try {
+          const storedPrefs = await getUserPreferencesFromStorage();
+          const storedPrefUuid = storedPrefs?.uuid ?? null;
+          const storedBreakpointPrefUuid = await getBreakpointPrefUuidFromStorage();
+          console.log("Stored preference uuid:", storedPrefUuid);
+          console.log("Stored breakpoint pref_uuid:", storedBreakpointPrefUuid);
+          const storedPrefValue = storedPrefs?.preference;
+          const parsedStoredPref = parsePreferenceValue(storedPrefValue);
+          if (parsedStoredPref && hasPreferenceData(storedPrefValue)) {
+            try {
+              const parsed = parsedStoredPref as { working_days?: string[] };
+              setWorkingDays(normalizeWorkingDays(parsed?.working_days));
+            } catch {
+              setWorkingDays(DEFAULT_WORKING_DAYS);
+            }
+          } else {
+            setWorkingDays(DEFAULT_WORKING_DAYS);
+          }
+
           // Step 1: Load user data from AsyncStorage
           const data = await getUserData();
           if (!isActive) return;
@@ -420,13 +676,22 @@ export default function HomeScreen() {
               if (!isActive) return;
 
               const prefVal = preferences?.preference;
-              if (prefVal && prefVal.trim() !== "") {
+              if (hasPreferenceData(prefVal)) {
                 await setUserPreferences({
                   preference: prefVal,
                   uuid: preferences?.uuid ?? null,
                 });
+                try {
+                  const parsed = parsePreferenceValue(prefVal) as {
+                    working_days?: string[];
+                  };
+                  setWorkingDays(normalizeWorkingDays(parsed?.working_days));
+                } catch {
+                  setWorkingDays(DEFAULT_WORKING_DAYS);
+                }
               } else {
                 await setUserPreferences(null);
+                setWorkingDays(DEFAULT_WORKING_DAYS);
               }
 
               const planType = (currentPlan?.plan_type || "").trim();
@@ -465,6 +730,7 @@ export default function HomeScreen() {
               try {
                 const generated = await breakpointsService.generate(data.uuid);
                 if (!isActive) return;
+                await setBreakpointGenerateData(generated || null);
                 const mapped = mapAlarmPatternsToAlarms(
                   generated?.alarm_patterns
                 );
@@ -485,14 +751,8 @@ export default function HomeScreen() {
             !storedSub ||
             !(storedSub.tier || "").trim() ||
             shouldShowExpiryModal(storedSub.expire_date, storedSub.tier);
-          setShowSubscriptionModal(needsSubscription);
-
-          // Preference gating second from stored preference
-          const storedPrefs = await getUserPreferencesFromStorage();
-          const needsPreferences =
-            !storedPrefs?.preference ||
-            storedPrefs.preference.trim() === "";
-          setShowPreferencesModal(needsSubscription ? false : needsPreferences);
+          const needsPreferences = !hasPreferenceData(storedPrefs?.preference);
+          updatePreferenceGate(needsSubscription, needsPreferences);
         } catch (error) {
           if (!isActive) return;
           console.error("Error checking modals:", error);
@@ -517,24 +777,122 @@ export default function HomeScreen() {
 
   const handlePreferencesComplete = () => {
     setShowPreferencesModal(false);
+    (async () => {
+      const storedPrefs = await getUserPreferencesFromStorage();
+      const storedPrefValue = storedPrefs?.preference;
+      const parsedStoredPref = parsePreferenceValue(storedPrefValue);
+      if (parsedStoredPref && hasPreferenceData(storedPrefValue)) {
+        try {
+          const parsed = parsedStoredPref as { working_days?: string[] };
+          setWorkingDays(normalizeWorkingDays(parsed?.working_days));
+        } catch {
+          setWorkingDays(DEFAULT_WORKING_DAYS);
+        }
+      } else {
+        setWorkingDays(DEFAULT_WORKING_DAYS);
+      }
+    })();
+  };
+
+  const handleConsentAgree = async () => {
+    if (consentSubmitting) return;
+    setConsentSubmitting(true);
+    try {
+      const response = await userService.acceptConsent();
+      if (response.status !== "success") {
+        Alert.alert("Consent failed", "Please try again.");
+        return;
+      }
+      setConsentAcknowledged(true);
+      setShowConsentModal(false);
+      setShowPreferencesModal(true);
+    } catch {
+      Alert.alert("Consent failed", "Please try again.");
+    } finally {
+      setConsentSubmitting(false);
+    }
   };
   const handleSubscriptionComplete = async () => {
     setShowSubscriptionModal(false);
     const storedPrefs = await getUserPreferencesFromStorage();
-    const needsPreferences =
-      !storedPrefs?.preference || storedPrefs.preference.trim() === "";
-    setShowPreferencesModal(needsPreferences);
+    const needsPreferences = !hasPreferenceData(storedPrefs?.preference);
+    updatePreferenceGate(false, needsPreferences);
   };
 
+  const updateSchedule = useCallback(async (nextAlarms: AlarmItem[]) => {
+    const storedGenerated = await getBreakpointGenerateData();
+    const storedPrefUuid = await getBreakpointPrefUuidFromStorage();
+    const scheduleId = storedGenerated?.uuid || storedPrefUuid;
+    if (!scheduleId) {
+      console.log("Schedule update skipped: missing uuid");
+      return;
+    }
+    const alarmPatterns: AlarmPatterns[] = nextAlarms
+      .filter((alarm) => alarm.enabled)
+      .map((alarm) => ({
+        start_time: { alarm_time: alarm.time, label: alarm.label },
+      }));
+    if (alarmPatterns.length === 0) {
+      console.log("Schedule update skipped: no enabled alarms");
+      return;
+    }
+    try {
+      console.log("Schedule update call", {
+        uuid: scheduleId,
+        alarmCount: alarmPatterns.length,
+      });
+      await breakpointsService.updateSchedule(scheduleId, alarmPatterns);
+    } catch (error) {
+      console.log("Failed to update alarm schedule:", error);
+    }
+  }, []);
+
   const toggleAlarm = (id: string) => {
-    const current = alarmsRef.current.find((alarm) => alarm.id === id);
-    if (!current) return;
-    const nextEnabled = !current.enabled;
     setAlarms((prevAlarms) =>
       prevAlarms.map((alarm) =>
-        alarm.id === id ? { ...alarm, enabled: nextEnabled } : alarm
+        alarm.id === id ? { ...alarm, enabled: !alarm.enabled } : alarm
       )
     );
+  };
+
+  const openEditModal = () => {
+    setDraftAlarms(renderedAlarms);
+    setShowTimePicker(false);
+    setActiveTimeAlarmId(null);
+    setShowEditModal(true);
+  };
+
+  const handleEditCancel = () => {
+    setShowEditModal(false);
+    setShowTimePicker(false);
+    setActiveTimeAlarmId(null);
+  };
+
+  const handleEditUpdate = async () => {
+    const updates = new Map(draftAlarms.map((alarm) => [alarm.id, alarm]));
+    const nextAlarms = alarms.map(
+      (alarm) => updates.get(alarm.id) || alarm
+    );
+    setAlarms(nextAlarms);
+    setShowEditModal(false);
+    setShowTimePicker(false);
+    setActiveTimeAlarmId(null);
+    await updateSchedule(nextAlarms);
+  };
+
+  const updateDraftAlarm = (
+    id: string,
+    updates: Partial<Pick<AlarmItem, "time" | "label">>
+  ) => {
+    setDraftAlarms((prev) =>
+      prev.map((alarm) => (alarm.id === id ? { ...alarm, ...updates } : alarm))
+    );
+  };
+
+  const openTimePicker = (alarm: AlarmItem) => {
+    setActiveTimeAlarmId(alarm.id);
+    setTimePickerValue(getPickerDateForTime(alarm.time));
+    setShowTimePicker(true);
   };
 
   const openGlobalOffPicker = () => {
@@ -564,6 +922,7 @@ export default function HomeScreen() {
     setIsGenerating(true);
     try {
       const generated = await breakpointsService.generate(userData.uuid);
+      await setBreakpointGenerateData(generated || null);
       const mapped = mapAlarmPatternsToAlarms(
         generated?.alarm_patterns,
         userData.uuid
@@ -588,18 +947,30 @@ export default function HomeScreen() {
             <Text style={styles.greeting}>{`Hi, ${firstName}`}</Text>
             <Text style={styles.subtitle}>Here is your break time alarms.</Text>
           </View>
-          <View style={styles.globalSwitchWrapper}>
-            <Switch
-              value={!isGlobalOffToday}
-              onValueChange={toggleGlobalAlarms}
-              trackColor={{ false: "#3a3a3a", true: "#f58220" }}
-              thumbColor={!isGlobalOffToday ? "#fff" : "#888"}
-              ios_backgroundColor="#3a3a3a"
-            />
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={[
+                styles.editButton,
+                renderedAlarms.length === 0 && styles.editButtonDisabled,
+              ]}
+              onPress={openEditModal}
+              disabled={renderedAlarms.length === 0}
+            >
+              <Ionicons name="create-outline" size={20} color="#f58220" />
+            </TouchableOpacity>
+            <View style={styles.globalSwitchWrapper}>
+              <Switch
+                value={!isGlobalOffToday}
+                onValueChange={toggleGlobalAlarms}
+                trackColor={{ false: "#3a3a3a", true: "#f58220" }}
+                thumbColor={!isGlobalOffToday ? "#fff" : "#888"}
+                ios_backgroundColor="#3a3a3a"
+              />
+            </View>
           </View>
         </View>
 
-        {visibleAlarms.length === 0 ? (
+        {renderedAlarms.length === 0 ? (
           <View style={styles.emptyState}>
             <View style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>Generate Alarms</Text>
@@ -624,7 +995,7 @@ export default function HomeScreen() {
             contentContainerStyle={styles.alarmListContent}
             showsVerticalScrollIndicator={false}
           >
-            {visibleAlarms.map((alarm) => (
+            {renderedAlarms.map((alarm) => (
               <View key={alarm.id} style={styles.alarmItem}>
                 <View style={styles.alarmInfo}>
                   <Text style={styles.alarmTime}>{alarm.time}</Text>
@@ -647,6 +1018,87 @@ export default function HomeScreen() {
           </ScrollView>
         )}
       </SafeAreaView>
+
+      <Modal
+        visible={showEditModal}
+        animationType="fade"
+        transparent
+        presentationStyle="overFullScreen"
+        statusBarTranslucent
+        hardwareAccelerated
+        onRequestClose={handleEditCancel}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.editModalWrapper}>
+            <View style={styles.editModalContainer}>
+            <Text style={styles.modalTitle}>Edit Alarms</Text>
+            <ScrollView
+              style={styles.editList}
+              contentContainerStyle={styles.editListContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {draftAlarms.map((alarm) => (
+                <View key={alarm.id} style={styles.editRow}>
+                  <TextInput
+                    style={[styles.editInput, styles.editLabelInput]}
+                    value={alarm.label}
+                    onChangeText={(text) =>
+                      updateDraftAlarm(alarm.id, { label: text })
+                    }
+                    placeholder="Label"
+                    placeholderTextColor="#666"
+                  />
+                  <TouchableOpacity
+                    style={[
+                      styles.editInput,
+                      styles.editTimeInput,
+                      styles.editTimeButton,
+                    ]}
+                    onPress={() => openTimePicker(alarm)}
+                  >
+                    <Text style={styles.editTimeText}>
+                      {alarm.time || "Time"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalButton}
+                onPress={handleEditCancel}
+              >
+                <Text style={styles.modalButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                onPress={handleEditUpdate}
+              >
+                <Text style={styles.modalButtonPrimaryText}>Update</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          </View>
+        </View>
+      </Modal>
+
+      {showTimePicker && (
+        <DateTimePicker
+          value={timePickerValue}
+          mode="time"
+          is24Hour={false}
+          display={Platform.OS === "ios" ? "spinner" : "default"}
+          onChange={(event, date) => {
+            setShowTimePicker(Platform.OS === "ios");
+            if (date && activeTimeAlarmId) {
+              setTimePickerValue(date);
+              updateDraftAlarm(activeTimeAlarmId, {
+                time: formatAlarmTime(date),
+              });
+            }
+          }}
+        />
+      )}
 
       <Modal visible={showGlobalOffPicker} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
@@ -697,6 +1149,30 @@ export default function HomeScreen() {
         visible={showSubscriptionModal}
         onComplete={handleSubscriptionComplete}
       />
+      <Modal visible={showConsentModal} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Consent Required</Text>
+            <Text style={styles.modalSubtitle}>
+              We will store some of your personal information to personalize
+              your experience. Please confirm that you understand and agree.
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                onPress={handleConsentAgree}
+                disabled={consentSubmitting}
+              >
+                {consentSubmitting ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.modalButtonPrimaryText}>I Agree</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
       <PreferencesModal
         visible={showPreferencesModal}
         onComplete={handlePreferencesComplete}
@@ -722,6 +1198,23 @@ const styles = StyleSheet.create({
   headerText: {
     flex: 1,
     paddingRight: 12,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  editButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#3a3a3a",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  editButtonDisabled: {
+    opacity: 0.5,
   },
   globalSwitchWrapper: {
     alignItems: "center",
@@ -822,6 +1315,53 @@ const styles = StyleSheet.create({
     backgroundColor: "#2a2a2a",
     borderRadius: 16,
     padding: 20,
+  },
+  editModalWrapper: {
+    width: "100%",
+    flex: 1,
+    justifyContent: "center",
+  },
+  editModalContainer: {
+    width: "100%",
+    maxHeight: "88%",
+    backgroundColor: "#2a2a2a",
+    borderRadius: 16,
+    padding: 20,
+  },
+  editList: {
+    marginTop: 12,
+  },
+  editListContent: {
+    paddingBottom: 8,
+    gap: 10,
+  },
+  editRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  editInput: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#3a3a3a",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: "#fff",
+    backgroundColor: "#1f1f1f",
+  },
+  editLabelInput: {
+    flex: 1,
+  },
+  editTimeInput: {
+    width: 110,
+  },
+  editTimeButton: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  editTimeText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
   },
   modalTitle: {
     fontSize: 18,

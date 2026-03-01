@@ -12,7 +12,12 @@ import {
 import { useEffect, useState, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { getUserData, userService, setUserPreferences } from "../services";
+import {
+  getUserData,
+  userService,
+  setUserPreferences,
+  StoredPreferences,
+} from "../services";
 
 interface PreferenceData {
   age: string;
@@ -24,6 +29,7 @@ interface PreferenceData {
     "clock-out_time": string;
     "break_time": string;
   };
+  working_days?: string[];
   health_condition: string;
   break_method: string;
 }
@@ -110,9 +116,21 @@ const BREAK_METHODS = [
   // },
 ];
 
+const WORKING_DAYS = [
+  { id: "Mon", label: "Mon" },
+  { id: "Tue", label: "Tue" },
+  { id: "Wed", label: "Wed" },
+  { id: "Thu", label: "Thu" },
+  { id: "Fri", label: "Fri" },
+  { id: "Sat", label: "Sat" },
+  { id: "Sun", label: "Sun" },
+];
+
+const DEFAULT_WORKING_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+
 interface PreferencesModalProps {
   visible: boolean;
-  onComplete: () => void;
+  onComplete: (updated: StoredPreferences | null) => void;
   initialData?: PreferenceData | null;
   allowClose?: boolean;
   onClose?: () => void;
@@ -135,6 +153,7 @@ export default function PreferencesModal({
   const [clockInTime, setClockInTime] = useState(new Date(2024, 0, 1, 9, 0));
   const [clockOutTime, setClockOutTime] = useState(new Date(2024, 0, 1, 18, 0));
   const [breakDuration, setBreakDuration] = useState("1");
+  const [workingDays, setWorkingDays] = useState<string[]>(DEFAULT_WORKING_DAYS);
   const [healthConditions, setHealthConditions] = useState("");
 
   // Step 2: Break Method
@@ -182,6 +201,11 @@ export default function PreferencesModal({
       setBreakDuration(
         (initialData.working_hour["break_time"] || "").replace(/[^0-9]/g, "")
       );
+      setWorkingDays(
+        initialData.working_days && initialData.working_days.length > 0
+          ? initialData.working_days
+          : DEFAULT_WORKING_DAYS
+      );
       setHealthConditions(initialData.health_condition || "");
       if (initialData.break_method) {
         const idx = BREAK_METHODS.findIndex(
@@ -200,6 +224,12 @@ export default function PreferencesModal({
     }
   }, [visible, initialData]);
 
+  const toggleWorkingDay = (dayId: string) => {
+    setWorkingDays((prev) =>
+      prev.includes(dayId) ? prev.filter((d) => d !== dayId) : [...prev, dayId]
+    );
+  };
+
   const currentPreferenceObj = useMemo(
     () => ({
       age: ageRange,
@@ -211,6 +241,7 @@ export default function PreferencesModal({
         "clock-out_time": formatTime(clockOutTime),
         "break_time": `${breakDuration} Hr`,
       },
+      working_days: workingDays,
       health_condition: healthConditions,
       break_method: selectedMethod || "",
     }),
@@ -222,6 +253,7 @@ export default function PreferencesModal({
       clockInTime,
       clockOutTime,
       breakDuration,
+      workingDays,
       healthConditions,
       selectedMethod,
     ]
@@ -239,6 +271,10 @@ export default function PreferencesModal({
         "clock-out_time": initialData.working_hour["clock-out_time"],
         "break_time": initialData.working_hour["break_time"],
       },
+      working_days:
+        initialData.working_days && initialData.working_days.length > 0
+          ? initialData.working_days
+          : DEFAULT_WORKING_DAYS,
       health_condition: initialData.health_condition,
       break_method: initialData.break_method || "",
     };
@@ -274,9 +310,11 @@ export default function PreferencesModal({
         "clock-out_time": formatTime(clockOutTime),
         "break_time": `${breakDuration} Hr`,
       },
+      working_days: workingDays,
       health_condition: healthConditions,
       break_method: selectedMethod || "",
     };
+    console.log("Submitting preferences payload", preferenceObj);
     const preferenceStr = JSON.stringify(preferenceObj);
     let storedPreference = preferenceStr;
     let storedUuid: string | null = null;
@@ -289,8 +327,9 @@ export default function PreferencesModal({
       }
       storedUuid = updated?.uuid ?? null;
     }
-    await setUserPreferences({ preference: storedPreference, uuid: storedUuid });
-    onComplete();
+    const updatedPrefs = { preference: storedPreference, uuid: storedUuid };
+    await setUserPreferences(updatedPrefs);
+    onComplete(updatedPrefs);
     setSubmitting(false);
     setStep(1);
   };
@@ -443,6 +482,35 @@ export default function PreferencesModal({
               <Text style={styles.unitText}>Hr</Text>
             </View>
           </View>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Working Days</Text>
+        <View style={styles.dayChipsRow}>
+          {WORKING_DAYS.map((day) => {
+            const isSelected = workingDays.includes(day.id);
+            return (
+              <TouchableOpacity
+                key={day.id}
+                style={[
+                  styles.dayChip,
+                  isSelected && styles.dayChipSelected,
+                ]}
+                onPress={() => toggleWorkingDay(day.id)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.dayChipText,
+                    isSelected && styles.dayChipTextSelected,
+                  ]}
+                >
+                  {day.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
 
@@ -711,6 +779,33 @@ const styles = StyleSheet.create({
   unitText: {
     fontSize: 14,
     color: "#888",
+  },
+  dayChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  dayChip: {
+    minWidth: 52,
+    height: 36,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#f58220",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "transparent",
+  },
+  dayChipSelected: {
+    backgroundColor: "#f58220",
+  },
+  dayChipText: {
+    fontSize: 13,
+    color: "#f58220",
+    fontWeight: "600",
+  },
+  dayChipTextSelected: {
+    color: "#fff",
   },
   healthInput: {
     backgroundColor: "#fff",

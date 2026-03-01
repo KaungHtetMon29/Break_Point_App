@@ -16,6 +16,11 @@ export {
   setUserPreferences,
   getUserPreferencesFromStorage,
   clearUserPreferences,
+  setBreakpointData,
+  setBreakpointPrefUuid,
+  getBreakpointPrefUuidFromStorage,
+  setBreakpointGenerateData,
+  getBreakpointGenerateData,
   setUserSubscription,
   getUserSubscriptionFromStorage,
   clearUserSubscription,
@@ -25,6 +30,7 @@ export {
 export type {
   JWTPayload,
   StoredPreferences,
+  StoredBreakpointData,
   StoredSubscription,
 } from "./api";
 

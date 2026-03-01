@@ -3,6 +3,7 @@
  * Handles user-related endpoints
  */
 
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "./api";
 import {
   UserDetail,
@@ -11,8 +12,16 @@ import {
   UserPreferences,
   UpdatePreferencesRequest,
   UpdatePreferencesResponse,
+  PreferenceHistoryItem,
+  ChoosePreferenceResponse,
+  StripeKeyResponse,
+  SubscribeResponse,
+  RecordActivityRequest,
+  RecordActivityResponse,
+  CanGenerateAdaptiveResponse,
+  ConsentResponse,
 } from "./types";
-
+const STRIPE_API_KEY = "stripe_key";
 export const userService = {
   /**
    * Get user details by ID
@@ -57,6 +66,64 @@ export const userService = {
       `/user/${id}/preferences`,
       data
     );
+    return response.data;
+  },
+
+  /**
+   * Get user preference history
+   */
+  getPreferenceHistory: async (id: string): Promise<PreferenceHistoryItem[]> => {
+    const response = await apiClient.get<PreferenceHistoryItem[]>(
+      `/user/${id}/preference_history`
+    );
+    return response.data;
+  },
+
+  chooseUserPreference: async (
+    preferenceUuid: string
+  ): Promise<ChoosePreferenceResponse> => {
+    const response = await apiClient.get<ChoosePreferenceResponse>(
+      `/user/${preferenceUuid}/choose_preference`
+    );
+    return response.data;
+  },
+
+  /**
+   * Get Stripe publishable key
+   */
+  getStripePublishableKey: async (): Promise<StripeKeyResponse> => {
+    const response = await apiClient.get<StripeKeyResponse>("/user/stripe_key");
+     await AsyncStorage.setItem(STRIPE_API_KEY, response.data.stripe_key);
+    return response.data;
+  },
+
+  /**
+   * Create subscription payment intent
+   */
+  subscribePlan: async (): Promise<SubscribeResponse> => {
+    const response = await apiClient.post<SubscribeResponse>("/user/subscribe");
+    return response.data;
+  },
+
+  recordActivity: async (
+    data: RecordActivityRequest
+  ): Promise<RecordActivityResponse> => {
+    const response = await apiClient.post<RecordActivityResponse>(
+      "/user/activity",
+      data
+    );
+    return response.data;
+  },
+
+  canGenerateAdaptive: async (): Promise<CanGenerateAdaptiveResponse> => {
+    const response = await apiClient.get<CanGenerateAdaptiveResponse>(
+      "/user/can_generate_adaptive"
+    );
+    return response.data;
+  },
+
+  acceptConsent: async (): Promise<ConsentResponse> => {
+    const response = await apiClient.post<ConsentResponse>("/user/accept_consent");
     return response.data;
   },
 };

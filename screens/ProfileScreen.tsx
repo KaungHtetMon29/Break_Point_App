@@ -19,16 +19,20 @@ import {
   getUserData,
   getUserPreferencesFromStorage,
   setUserPreferences,
+  getBreakpointPrefUuidFromStorage,
+  setBreakpointPrefUuid,
   JWTPayload,
   StoredPreferences,
   getUserSubscriptionFromStorage,
   StoredSubscription,
   breakpointsService,
   userService,
+  setBreakpointData,
+  setBreakpointGenerateData,
 } from "../services";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const TECHNIQUE_PREF_UUID_KEY = "technique_preference_uuid";
+const BREAKPOINT_PREF_UUID_KEY = "breakpoint_pref_uuid";
 
 interface PreferenceData {
   age: string;
@@ -55,7 +59,7 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
   const [prefData, setPrefData] = useState<PreferenceData | null>(null);
   const [showPreferencesModal, setShowPreferencesModal] = useState(false);
   const [subscription, setSubscription] = useState<StoredSubscription | null>(null);
-  const [techPreferenceUuid, setTechPreferenceUuid] = useState<string | null>(
+  const [breakpointPrefUuid, setBreakpointPrefUuidState] = useState<string | null>(
     null
   );
   const [isGenerating, setIsGenerating] = useState(false);
@@ -82,11 +86,9 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
           setSubscription(sub);
           if (ud?.uuid) {
             try {
-              const storedTechUuid = await AsyncStorage.getItem(
-                TECHNIQUE_PREF_UUID_KEY
-              );
-              if (storedTechUuid && active) {
-                setTechPreferenceUuid(storedTechUuid);
+              const storedPrefUuid = await getBreakpointPrefUuidFromStorage();
+              if (storedPrefUuid && active) {
+                setBreakpointPrefUuidState(storedPrefUuid);
               }
             } catch {
             }
@@ -97,7 +99,7 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
               if (prefVal && prefVal.trim() !== "") {
                 const updatedPrefs = {
                   preference: prefVal,
-                  uuid: latestPrefs?.uuid ?? null,
+                  uuid: latestPrefs?.uuid ?? sp?.uuid ?? null,
                 };
                 await setUserPreferences(updatedPrefs);
                 setPrefs(updatedPrefs);
@@ -111,27 +113,36 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
             try {
               const techniques = await breakpointsService.getTechniques(ud.uuid);
               if (!active) return;
-              const prefUuid =
-                techniques.find((tech) => tech.preference_uuid)?.preference_uuid ||
-                null;
+              const currentPrefUuid = prefs?.uuid ?? sp?.uuid ?? null;
+              const matched = techniques.find(
+                (tech) => tech.pref_uuid && tech.pref_uuid === currentPrefUuid
+              );
+              const prefUuid = matched?.pref_uuid || techniques[0]?.pref_uuid || null;
               if (prefUuid) {
-                setTechPreferenceUuid(prefUuid);
+                setBreakpointPrefUuidState(prefUuid);
+                await setBreakpointPrefUuid(prefUuid);
               }
-              if (prefUuid) {
-                await AsyncStorage.setItem(TECHNIQUE_PREF_UUID_KEY, prefUuid);
+              const breakpointData = matched || techniques[0] || null;
+              if (breakpointData) {
+                await setBreakpointData({
+                  uuid: breakpointData.uuid,
+                  pref_uuid: breakpointData.pref_uuid ?? null,
+                  is_active: breakpointData.is_active,
+                  techniques: breakpointData.techniques,
+                });
               }
             } catch {
               if (!active) return;
             }
           } else {
-            setTechPreferenceUuid(null);
+            setBreakpointPrefUuidState(null);
           }
         } catch {
           if (!active) return;
           setJwtUser(null);
           setPrefs(null);
           setSubscription(null);
-          setTechPreferenceUuid(null);
+          setBreakpointPrefUuidState(null);
         }
       })();
 
@@ -162,11 +173,12 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
     [subscription?.tier]
   );
   const isGenerateEnabled = useMemo(() => {
-    const currentPrefUuid = prefs?.uuid || null;
-    if (!currentPrefUuid) return false;
-    if (!techPreferenceUuid) return true;
-    return techPreferenceUuid !== currentPrefUuid;
-  }, [prefs?.uuid, techPreferenceUuid]);
+    const prefUuid = prefs?.uuid ?? null;
+    const bpUuid = breakpointPrefUuid ?? null;
+    if (!prefUuid) return false;
+    if (!bpUuid) return true;
+    return prefUuid !== bpUuid;
+  }, [prefs?.uuid, breakpointPrefUuid]);
 
   useEffect(() => {
     if (prefs?.preference) {
@@ -187,7 +199,7 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
       "user_preferences",
       "user_data",
       "auth_token",
-      TECHNIQUE_PREF_UUID_KEY,
+      BREAKPOINT_PREF_UUID_KEY,
     ]);
     navigation.getParent()?.navigate("Login");
   }
@@ -196,15 +208,23 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
     if (!jwtUser?.uuid || !isGenerateEnabled || isGenerating) return;
     setIsGenerating(true);
     try {
-      await breakpointsService.generate(jwtUser.uuid);
+      const generated = await breakpointsService.generate(jwtUser.uuid);
+      await setBreakpointGenerateData(generated || null);
+      const prefUuid = generated?.pref_uuid || prefs?.uuid || null;
+      setBreakpointPrefUuidState(prefUuid);
+      await setBreakpointPrefUuid(prefUuid);
       const techniques = await breakpointsService.getTechniques(jwtUser.uuid);
-      const prefUuid =
-        prefs?.uuid ||
-        techniques.find((tech) => tech.preference_uuid)?.preference_uuid ||
-        null;
-      setTechPreferenceUuid(prefUuid);
-      if (prefUuid) {
-        await AsyncStorage.setItem(TECHNIQUE_PREF_UUID_KEY, prefUuid);
+      const matched = techniques.find(
+        (tech) => tech.pref_uuid && tech.pref_uuid === prefUuid
+      );
+      const breakpointData = matched || techniques[0] || null;
+      if (breakpointData) {
+        await setBreakpointData({
+          uuid: breakpointData.uuid,
+          pref_uuid: breakpointData.pref_uuid ?? null,
+          is_active: breakpointData.is_active,
+          techniques: breakpointData.techniques,
+        });
       }
     } catch {
     } finally {
@@ -212,6 +232,10 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
     }
   };
 
+
+  const handlePreferenceHistory = () => {
+    navigation.getParent()?.navigate("PreferenceHistory");
+  };
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <StatusBar style="light" />
@@ -363,6 +387,16 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
             </>
           )}
         </View>
+        <TouchableOpacity
+          style={styles.historyButton}
+          onPress={handlePreferenceHistory}
+        >
+          <View style={styles.historyIcon}>
+            <Ionicons name="time-outline" size={20} color={colors.primary} />
+          </View>
+          <Text style={styles.historyText}>Preference History</Text>
+          <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+        </TouchableOpacity>
         {hasPrefs && (
           <View style={styles.generateSection}>
             <Text style={styles.generateText}>
@@ -389,7 +423,10 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
         initialData={prefData}
         allowClose
         onClose={() => setShowPreferencesModal(false)}
-        onComplete={async () => {
+        onComplete={async (updated) => {
+          if (updated) {
+            setPrefs(updated);
+          }
           if (jwtUser?.uuid) {
             try {
               const latestPrefs = await userService.getUserPreferences(
@@ -397,12 +434,12 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
               );
               const prefVal = latestPrefs?.preference;
               if (prefVal && prefVal.trim() !== "") {
-                const updatedPrefs = {
+                const refreshedPrefs = {
                   preference: prefVal,
                   uuid: latestPrefs?.uuid ?? null,
                 };
-                await setUserPreferences(updatedPrefs);
-                setPrefs(updatedPrefs);
+                await setUserPreferences(refreshedPrefs);
+                setPrefs(refreshedPrefs);
               } else {
                 await setUserPreferences(null);
                 setPrefs(null);
@@ -543,6 +580,32 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.sm,
     color: colors.textSecondary,
     marginBottom: spacing.base,
+  },
+  historyButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.backgroundLighter,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    gap: spacing.sm,
+    marginBottom: spacing.xl,
+  },
+  historyIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.backgroundLighter,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  historyText: {
+    flex: 1,
+    fontSize: typography.fontSize.md,
+    color: colors.textPrimary,
+    fontWeight: typography.fontWeight.semibold,
   },
   generateButton: {
     backgroundColor: colors.primary,

@@ -86,5 +86,7 @@ export const API_ENDPOINTS = {
     logout: `${API_URL}/auth/logout`,
     googleSignIn: `${API_URL}/auth/google`,
     googleAuth: `${API_URL}/auth/google/auth`,
+    signup: `${API_URL}/auth/signup`,
+    callback: `${API_URL}/auth/callback`,
   },
 };

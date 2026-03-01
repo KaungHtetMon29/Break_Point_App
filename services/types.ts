@@ -82,11 +82,61 @@ export interface UpdatePreferencesResponse {
   updated_at: string;
 }
 
+export interface PreferenceHistoryItem {
+  uuid: string;
+  preference: string;
+  is_active?: boolean;
+}
+
+export interface ChoosePreferenceResponse {
+  preference: PreferenceHistoryItem;
+  breakpoint: BreakpointData;
+}
+
+export interface StripeKeyResponse {
+  stripe_key: string;
+}
+
+export interface SubscribeResponse {
+  customer_id: string;
+  payment_intent: string;
+}
+
+export type ActivityAction = "snooze" | "skip" | "break";
+export type ActivityTimeBlock = "morning" | "evening" | "night";
+
+export interface RecordActivityRequest {
+  action: ActivityAction;
+  time_block: ActivityTimeBlock;
+  alarm_time: string;
+  prefernce_uuid: string;
+}
+
+export interface RecordActivityResponse {
+  status: "success" | "failed";
+}
+
+export interface CanGenerateAdaptiveResponse {
+  days_left?: number;
+  can_generate?: boolean;
+}
+
+export interface ConsentResponse {
+  status: "success" | "failed";
+}
+
 // ============ Breakpoints Types ============
 
 export interface BreakpointTechnique {
   uuid: string;
-  preference_uuid?: string | null;
+  pref_uuid?: string | null;
+  is_active: boolean;
+  techniques: string;
+}
+
+export interface BreakpointData {
+  uuid: string;
+  pref_uuid?: string | null;
   is_active: boolean;
   techniques: string;
 }
@@ -102,7 +152,9 @@ export interface AlarmPatterns {
 }
 
 export interface GenerateBreakpointResponse {
+  uuid?: string;
   alarm_patterns?: AlarmPatterns[];
+  pref_uuid?: string;
   status?: string;
 }
 
