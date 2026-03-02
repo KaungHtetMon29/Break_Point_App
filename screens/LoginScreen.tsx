@@ -152,11 +152,8 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
                 {isSigningIn ? (
                   <ActivityIndicator size="small" color="#333" />
                 ) : (
-                  <Text style={styles.socialIcon}>G</Text>
+                  <Text style={styles.socialText}>Login with Google</Text>
                 )}
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.socialButton}>
-                <Text style={styles.socialIconFb}>f</Text>
               </TouchableOpacity>
             </View>
 
@@ -270,30 +267,28 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   socialButtons: {
-    flexDirection: "row",
-    gap: 16,
-    marginBottom: 40,
+    width: "100%",
+    alignItems: "center",
+    marginBottom: 32,
   },
   socialButton: {
-    width: 50,
-    height: 50,
     borderRadius: 25,
     backgroundColor: "#fff",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    width: "100%",
+    maxWidth: 280,
     alignItems: "center",
     justifyContent: "center",
   },
   disabledButton: {
     opacity: 0.6,
   },
-  socialIcon: {
-    fontSize: 24,
-    fontWeight: "bold",
+  socialText: {
+    fontSize: 15,
+    fontWeight: "600",
     color: "#333",
-  },
-  socialIconFb: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#1877f2",
+    textAlign: "center",
   },
   signUpContainer: {
     flexDirection: "row",

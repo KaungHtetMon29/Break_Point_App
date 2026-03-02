@@ -6,6 +6,9 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
+  TextInput,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,6 +21,7 @@ import PreferencesModal from "../components/PreferencesModal";
 import {
   getUserData,
   getUserPreferencesFromStorage,
+  setUserData,
   setUserPreferences,
   getBreakpointPrefUuidFromStorage,
   setBreakpointPrefUuid,
@@ -63,6 +67,10 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
     null
   );
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+  const [isSavingName, setIsSavingName] = useState(false);
+  const [nameOverride, setNameOverride] = useState<string | null>(null);
 
   const handleGoBack = () => {
     if (navigation.canGoBack()) {
@@ -153,8 +161,8 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
   );
 
   const displayName = useMemo(
-    () => user?.name ?? jwtUser?.name ?? "Unknown",
-    [user?.name, jwtUser?.name]
+    () => nameOverride ?? user?.name ?? jwtUser?.name ?? "Unknown",
+    [nameOverride, user?.name, jwtUser?.name]
   );
   const displayEmail = useMemo(
     () => user?.email ?? jwtUser?.email ?? "",
@@ -232,6 +240,48 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
     }
   };
 
+  const handleEditName = () => {
+    setNameInput(displayName);
+    setIsEditingName(true);
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditingName(false);
+    setNameInput(displayName);
+  };
+
+  const handleSaveName = async () => {
+    const nextName = nameInput.trim();
+    if (!nextName) {
+      Alert.alert("Invalid name", "Please enter a valid name.");
+      return;
+    }
+    if (isSavingName) return;
+    if (nextName === displayName) {
+      setIsEditingName(false);
+      return;
+    }
+    setIsSavingName(true);
+    try {
+      const response = await userService.editProfile({ username: nextName });
+      if (response.status !== "success") {
+        Alert.alert("Update failed", "Please try again.");
+        return;
+      }
+      setNameOverride(nextName);
+      if (jwtUser) {
+        const updated = { ...jwtUser, name: nextName };
+        setJwtUser(updated);
+        await setUserData(updated);
+      }
+      setIsEditingName(false);
+    } catch {
+      Alert.alert("Update failed", "Please try again.");
+    } finally {
+      setIsSavingName(false);
+    }
+  };
+
 
   const handlePreferenceHistory = () => {
     navigation.getParent()?.navigate("PreferenceHistory");
@@ -272,10 +322,47 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
 
         {/* Name */}
         <View style={styles.nameSection}>
-          <Text style={styles.userName}>{displayName}</Text>
-          <TouchableOpacity style={styles.editButton}>
-            <Ionicons name="create-outline" size={20} color={colors.primary} />
-          </TouchableOpacity>
+          {isEditingName ? (
+            <View style={styles.nameEditRow}>
+              <TextInput
+                style={styles.nameInput}
+                value={nameInput}
+                onChangeText={setNameInput}
+                placeholder="Enter name"
+                placeholderTextColor={colors.textMuted}
+              />
+              <View style={styles.nameActions}>
+                <TouchableOpacity
+                  style={styles.nameActionButton}
+                  onPress={handleCancelEdit}
+                  disabled={isSavingName}
+                >
+                  <Text style={styles.nameActionText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.nameActionButton, styles.nameActionPrimary]}
+                  onPress={handleSaveName}
+                  disabled={isSavingName}
+                >
+                  {isSavingName ? (
+                    <ActivityIndicator size="small" color={colors.white} />
+                  ) : (
+                    <Text style={styles.nameActionPrimaryText}>Save</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <>
+              <Text style={styles.userName}>{displayName}</Text>
+              <TouchableOpacity
+                style={styles.editButton}
+                onPress={handleEditName}
+              >
+                <Ionicons name="create-outline" size={20} color={colors.primary} />
+              </TouchableOpacity>
+            </>
+          )}
         </View>
         <View style={styles.tierBadgeRow}>
           <View
@@ -495,6 +582,43 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: spacing.base,
     gap: spacing.sm,
+  },
+  nameEditRow: {
+    flex: 1,
+    gap: spacing.sm,
+  },
+  nameInput: {
+    borderWidth: 1,
+    borderColor: colors.backgroundLighter,
+    borderRadius: 12,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    color: colors.textPrimary,
+    backgroundColor: colors.backgroundLight,
+  },
+  nameActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  nameActionButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.backgroundLighter,
+    borderRadius: 12,
+    paddingVertical: spacing.xs,
+    alignItems: "center",
+  },
+  nameActionPrimary: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  nameActionText: {
+    color: colors.textPrimary,
+    fontWeight: typography.fontWeight.semibold,
+  },
+  nameActionPrimaryText: {
+    color: colors.white,
+    fontWeight: typography.fontWeight.semibold,
   },
   userName: {
     fontSize: typography.fontSize["3xl"],

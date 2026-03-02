@@ -9,6 +9,8 @@ import {
   UserDetail,
   UpdateUserRequest,
   UpdateUserResponse,
+  EditProfileRequest,
+  EditProfileResponse,
   UserPreferences,
   UpdatePreferencesRequest,
   UpdatePreferencesResponse,
@@ -40,6 +42,16 @@ export const userService = {
   ): Promise<UpdateUserResponse> => {
     const response = await apiClient.put<UpdateUserResponse>(
       `/user/${id}`,
+      data
+    );
+    return response.data;
+  },
+
+  editProfile: async (
+    data: EditProfileRequest
+  ): Promise<EditProfileResponse> => {
+    const response = await apiClient.post<EditProfileResponse>(
+      "/user/edit_profile",
       data
     );
     return response.data;

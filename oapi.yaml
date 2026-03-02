@@ -163,7 +163,35 @@ paths:
               schema:
                 type: object
                 $ref: "#/components/schemas/SubscribeResponse"
-                
+              
+  /edit_profile:
+    post:
+      tags:
+        - user
+      operationId: editProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+      responses:
+        '200':
+          description: edit user profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - success
+                      - failed
+                        
   /accept_consent:
     post:
       tags:

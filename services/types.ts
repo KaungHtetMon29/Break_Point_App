@@ -67,6 +67,14 @@ export interface UpdateUserResponse {
   updated_at: string;
 }
 
+export interface EditProfileRequest {
+  username: string;
+}
+
+export interface EditProfileResponse {
+  status: "success" | "failed";
+}
+
 export interface UserPreferences {
   uuid?: string | null;
   preference: string;
