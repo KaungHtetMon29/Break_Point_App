@@ -133,6 +133,14 @@ export interface ConsentResponse {
   status: "success" | "failed";
 }
 
+export interface SubmitFeedbackRequest {
+  message: string;
+}
+
+export interface SubmitFeedbackResponse {
+  status: "success" | "failed";
+}
+
 // ============ Breakpoints Types ============
 
 export interface BreakpointTechnique {

@@ -48,6 +48,7 @@ interface PreferenceData {
     "clock-out_time": string;
     "break_time": string;
   };
+  working_days?: string[];
   health_condition: string;
   break_method: string;
 }
@@ -456,6 +457,15 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
                     {prefData?.working_hour["break_time"]}
                   </Text>
                 </View>
+              </View>
+              <View style={styles.divider} />
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Working Days</Text>
+                <Text style={styles.sectionValue}>
+                  {prefData?.working_days?.length
+                    ? prefData.working_days.join(", ")
+                    : "Not set"}
+                </Text>
               </View>
               <View style={styles.divider} />
               <View style={styles.section}>

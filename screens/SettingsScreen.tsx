@@ -1,5 +1,13 @@
 import { StatusBar } from "expo-status-bar";
-import { Modal, StyleSheet, Text, View, TouchableOpacity } from "react-native";
+import {
+  Modal,
+  StyleSheet,
+  Text,
+  View,
+  TouchableOpacity,
+  TextInput,
+  ActivityIndicator,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useMemo, useState } from "react";
@@ -15,6 +23,10 @@ import {
 
 export default function SettingsScreen() {
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [showContactModal, setShowContactModal] = useState(false);
+  const [feedbackText, setFeedbackText] = useState("");
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
   const [subscription, setSubscription] = useState<{
     is_active: boolean;
     tier: string;
@@ -99,6 +111,37 @@ export default function SettingsScreen() {
     }
   }, [adaptiveStatus, isAdaptiveLoading]);
 
+  const handleSubmitFeedback = useCallback(async () => {
+    const message = feedbackText.trim();
+    if (!message || isSubmittingFeedback) {
+      return;
+    }
+    setIsSubmittingFeedback(true);
+    try {
+      const response = await userService.submitFeedback({ message });
+      if (response.status === "success") {
+        setFeedbackText("");
+        setShowFeedbackModal(false);
+        setAdaptiveNotice({
+          title: "Feedback Sent",
+          message: "Thank you for sharing your feedback.",
+        });
+        return;
+      }
+      setAdaptiveNotice({
+        title: "Feedback Failed",
+        message: "Please try submitting your feedback again.",
+      });
+    } catch {
+      setAdaptiveNotice({
+        title: "Feedback Failed",
+        message: "Please try submitting your feedback again.",
+      });
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
+  }, [feedbackText, isSubmittingFeedback]);
+
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <StatusBar style="light" />
@@ -134,6 +177,28 @@ export default function SettingsScreen() {
             <Text style={styles.adaptiveAccentText}>Premium</Text>
           </View>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.feedbackButton, styles.secondaryButton]}
+          onPress={() => setShowFeedbackModal(true)}
+        >
+          <View style={styles.feedbackContent}>
+            <View style={styles.feedbackIcon}>
+              <Ionicons name="chatbox-ellipses-outline" size={18} color="#fff" />
+            </View>
+            <Text style={styles.feedbackText}>Send Feedback</Text>
+          </View>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.contactButton, styles.secondaryButton]}
+          onPress={() => setShowContactModal(true)}
+        >
+          <View style={styles.contactContent}>
+            <View style={styles.contactIcon}>
+              <Ionicons name="call-outline" size={18} color="#fff" />
+            </View>
+            <Text style={styles.contactText}>Contact Us</Text>
+          </View>
+        </TouchableOpacity>
       </View>
       <SubscriptionModal
         visible={showSubscriptionModal}
@@ -151,6 +216,71 @@ export default function SettingsScreen() {
               onPress={() => setAdaptiveNotice(null)}
             >
               <Text style={styles.noticeButtonText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+      <Modal visible={showFeedbackModal} transparent animationType="fade">
+        <View style={styles.noticeOverlay}>
+          <View style={styles.feedbackModalContainer}>
+            <Text style={styles.noticeTitle}>Send Feedback</Text>
+            <TextInput
+              style={styles.feedbackInput}
+              value={feedbackText}
+              onChangeText={setFeedbackText}
+              placeholder="Share your thoughts..."
+              placeholderTextColor="#777"
+              multiline
+              textAlignVertical="top"
+              maxLength={1500}
+            />
+            <View style={styles.feedbackActions}>
+              <TouchableOpacity
+                style={styles.feedbackCancelButton}
+                onPress={() => setShowFeedbackModal(false)}
+                disabled={isSubmittingFeedback}
+              >
+                <Text style={styles.feedbackCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.feedbackSubmitButton,
+                  (!feedbackText.trim() || isSubmittingFeedback) && styles.adaptiveButtonDisabled,
+                ]}
+                onPress={handleSubmitFeedback}
+                disabled={!feedbackText.trim() || isSubmittingFeedback}
+              >
+                {isSubmittingFeedback ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.feedbackSubmitText}>Submit</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <Modal visible={showContactModal} transparent animationType="fade">
+        <View style={styles.noticeOverlay}>
+          <View style={styles.contactModalContainer}>
+            <Text style={styles.noticeTitle}>Contact Information</Text>
+            <View style={styles.contactLine}>
+              <Ionicons name="mail-outline" size={16} color="#bbb" />
+              <Text style={styles.contactValue}>support@breakpoint.app</Text>
+            </View>
+            <View style={styles.contactLine}>
+              <Ionicons name="call-outline" size={16} color="#bbb" />
+              <Text style={styles.contactValue}>+1 (555) 123-4567</Text>
+            </View>
+            <View style={styles.contactLine}>
+              <Ionicons name="location-outline" size={16} color="#bbb" />
+              <Text style={styles.contactValue}>221B Baker Street, London</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.noticeButton}
+              onPress={() => setShowContactModal(false)}
+            >
+              <Text style={styles.noticeButtonText}>Close</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -248,6 +378,60 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
   },
+  feedbackButton: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#3a3a3a",
+    backgroundColor: "#2a2a2a",
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  feedbackContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  feedbackIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#3a3a3a",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  feedbackText: {
+    fontSize: 16,
+    color: "#fff",
+    fontWeight: "600",
+  },
+  contactButton: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#3a3a3a",
+    backgroundColor: "#2a2a2a",
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  contactContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  contactIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#3a3a3a",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  contactText: {
+    fontSize: 16,
+    color: "#fff",
+    fontWeight: "600",
+  },
   noticeOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.6)",
@@ -282,5 +466,71 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 14,
     fontWeight: "600",
+  },
+  feedbackModalContainer: {
+    width: "100%",
+    backgroundColor: "#2a2a2a",
+    borderRadius: 16,
+    padding: 20,
+  },
+  feedbackInput: {
+    marginTop: 8,
+    minHeight: 140,
+    maxHeight: 240,
+    borderWidth: 1,
+    borderColor: "#3a3a3a",
+    borderRadius: 12,
+    color: "#fff",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  feedbackActions: {
+    marginTop: 16,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+  },
+  feedbackCancelButton: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#4a4a4a",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  feedbackCancelText: {
+    color: "#ccc",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  feedbackSubmitButton: {
+    backgroundColor: "#f58220",
+    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    minWidth: 86,
+    alignItems: "center",
+  },
+  feedbackSubmitText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  contactModalContainer: {
+    width: "100%",
+    backgroundColor: "#2a2a2a",
+    borderRadius: 16,
+    padding: 20,
+    gap: 10,
+  },
+  contactLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  contactValue: {
+    color: "#ddd",
+    fontSize: 14,
+    flexShrink: 1,
   },
 });

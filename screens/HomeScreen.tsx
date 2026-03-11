@@ -61,6 +61,7 @@ const NOTIFICATION_MAP_KEY = "alarm_notification_map";
 const NATIVE_ALARM_MAP_KEY = "native_alarm_map";
 const NATIVE_ALARM_HISTORY_KEY = "native_alarm_history";
 const GLOBAL_ALARM_OFF_KEY = "global_alarm_off_until";
+const ALARM_OVERRIDES_KEY = "alarm_overrides";
 const ALARM_CHANNEL_ID = "alarm-channel";
 const DEFAULT_WORKING_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 const DAY_ORDER = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -348,6 +349,56 @@ export default function HomeScreen() {
     );
   };
 
+  const loadAlarmOverrides = async (): Promise<{
+    schedule_id: string | null;
+    alarms: AlarmItem[];
+  } | null> => {
+    const raw = await AsyncStorage.getItem(ALARM_OVERRIDES_KEY);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as { schedule_id: string | null; alarms: AlarmItem[] };
+    } catch {
+      return null;
+    }
+  };
+
+  const saveAlarmOverrides = async (
+    scheduleId: string | null,
+    alarmsToSave: AlarmItem[]
+  ) => {
+    if (!scheduleId) {
+      await AsyncStorage.removeItem(ALARM_OVERRIDES_KEY);
+      return;
+    }
+    await AsyncStorage.setItem(
+      ALARM_OVERRIDES_KEY,
+      JSON.stringify({ schedule_id: scheduleId, alarms: alarmsToSave })
+    );
+  };
+
+  const clearAlarmOverrides = async () => {
+    await AsyncStorage.removeItem(ALARM_OVERRIDES_KEY);
+  };
+
+  const applyAlarmOverrides = async (
+    scheduleId: string | null,
+    baseAlarms: AlarmItem[] | null
+  ): Promise<AlarmItem[] | null> => {
+    if (!baseAlarms || !scheduleId) return baseAlarms;
+    const stored = await loadAlarmOverrides();
+    if (!stored || stored.schedule_id !== scheduleId) return baseAlarms;
+    if (!Array.isArray(stored.alarms) || stored.alarms.length === 0) {
+      return baseAlarms;
+    }
+    return stored.alarms;
+  };
+
+  const getScheduleId = async (): Promise<string | null> => {
+    const storedGenerated = await getBreakpointGenerateData();
+    const storedPrefUuid = await getBreakpointPrefUuidFromStorage();
+    return storedGenerated?.uuid || storedPrefUuid || null;
+  };
+
   const loadNativeAlarmMap = async () => {
     const raw = await AsyncStorage.getItem(NATIVE_ALARM_MAP_KEY);
     if (!raw) return {};
@@ -471,7 +522,6 @@ export default function HomeScreen() {
           title: "Alarm",
           body: `${alarm.label} • ${alarm.time}`,
           sound: true,
-          channelId: ALARM_CHANNEL_ID,
         },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
@@ -479,6 +529,7 @@ export default function HomeScreen() {
           minute: trigger.minute,
           weekday,
           repeats: true,
+          channelId: ALARM_CHANNEL_ID,
         },
       });
       notificationMapRef.current[`${alarm.id}|${day}`] = notificationId;
@@ -719,7 +770,12 @@ export default function HomeScreen() {
               if (!isActive) return;
               const mappedTechniques = mapTechniquesToAlarms(techniques);
               if (mappedTechniques) {
-                setAlarms(mappedTechniques);
+                const scheduleId = await getScheduleId();
+                const merged = await applyAlarmOverrides(
+                  scheduleId,
+                  mappedTechniques
+                );
+                setAlarms(merged || mappedTechniques);
                 applied = true;
               }
             } catch (techniquesError) {
@@ -735,7 +791,9 @@ export default function HomeScreen() {
                   generated?.alarm_patterns
                 );
                 if (mapped) {
-                  setAlarms(mapped);
+                  const scheduleId = await getScheduleId();
+                  const merged = await applyAlarmOverrides(scheduleId, mapped);
+                  setAlarms(merged || mapped);
                 }
               } catch (generateError) {
                 console.log("Failed to generate alarm schedule:", generateError);
@@ -827,8 +885,15 @@ export default function HomeScreen() {
       console.log("Schedule update skipped: missing uuid");
       return;
     }
+    const seen = new Set<string>();
     const alarmPatterns: AlarmPatterns[] = nextAlarms
       .filter((alarm) => alarm.enabled)
+      .filter((alarm) => {
+        const key = `${alarm.time}|${alarm.label}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
       .map((alarm) => ({
         start_time: { alarm_time: alarm.time, label: alarm.label },
       }));
@@ -877,6 +942,8 @@ export default function HomeScreen() {
     setShowEditModal(false);
     setShowTimePicker(false);
     setActiveTimeAlarmId(null);
+    const scheduleId = await getScheduleId();
+    await saveAlarmOverrides(scheduleId, nextAlarms);
     await updateSchedule(nextAlarms);
   };
 
@@ -928,6 +995,7 @@ export default function HomeScreen() {
         userData.uuid
       );
       if (mapped) {
+        await clearAlarmOverrides();
         setAlarms(mapped);
       }
     } catch (error) {

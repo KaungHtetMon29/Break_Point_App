@@ -200,6 +200,7 @@ export interface StoredPreferences {
 
 export interface StoredBreakpointData {
   uuid: string;
+  pref_uuid?: string | null;
   is_active: boolean;
   techniques: string;
 }

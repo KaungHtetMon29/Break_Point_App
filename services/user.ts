@@ -22,6 +22,8 @@ import {
   RecordActivityResponse,
   CanGenerateAdaptiveResponse,
   ConsentResponse,
+  SubmitFeedbackRequest,
+  SubmitFeedbackResponse,
 } from "./types";
 const STRIPE_API_KEY = "stripe_key";
 export const userService = {
@@ -136,6 +138,13 @@ export const userService = {
 
   acceptConsent: async (): Promise<ConsentResponse> => {
     const response = await apiClient.post<ConsentResponse>("/user/accept_consent");
+    return response.data;
+  },
+
+  submitFeedback: async (
+    data: SubmitFeedbackRequest
+  ): Promise<SubmitFeedbackResponse> => {
+    const response = await apiClient.post<SubmitFeedbackResponse>("/user/feedback", data);
     return response.data;
   },
 };
