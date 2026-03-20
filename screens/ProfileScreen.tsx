@@ -86,24 +86,28 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
       let active = true;
       (async () => {
         try {
-          const ud = await getUserData();
-          const sp = await getUserPreferencesFromStorage();
-          const sub = await getUserSubscriptionFromStorage();
+          const [ud, sp, sub] = await Promise.all([
+            getUserData(),
+            getUserPreferencesFromStorage(),
+            getUserSubscriptionFromStorage(),
+          ]);
           if (!active) return;
           setJwtUser(ud);
           setPrefs(sp);
           setSubscription(sub);
           if (ud?.uuid) {
-            try {
-              const storedPrefUuid = await getBreakpointPrefUuidFromStorage();
-              if (storedPrefUuid && active) {
-                setBreakpointPrefUuidState(storedPrefUuid);
-              }
-            } catch {
+            const [storedPrefUuid, latestPrefs, techniques] = await Promise.all([
+              getBreakpointPrefUuidFromStorage().catch(() => null),
+              userService.getUserPreferences(ud.uuid).catch(() => null),
+              breakpointsService.getTechniques(ud.uuid).catch(() => []),
+            ]);
+            if (!active) return;
+            if (storedPrefUuid) {
+              setBreakpointPrefUuidState(storedPrefUuid);
             }
+
+            let effectivePrefsUuid = sp?.uuid ?? null;
             try {
-              const latestPrefs = await userService.getUserPreferences(ud.uuid);
-              if (!active) return;
               const prefVal = latestPrefs?.preference;
               if (prefVal && prefVal.trim() !== "") {
                 const updatedPrefs = {
@@ -112,17 +116,17 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
                 };
                 await setUserPreferences(updatedPrefs);
                 setPrefs(updatedPrefs);
+                effectivePrefsUuid = updatedPrefs.uuid ?? null;
               } else {
                 await setUserPreferences(null);
                 setPrefs(null);
+                effectivePrefsUuid = null;
               }
             } catch {
             }
 
             try {
-              const techniques = await breakpointsService.getTechniques(ud.uuid);
-              if (!active) return;
-              const currentPrefUuid = prefs?.uuid ?? sp?.uuid ?? null;
+              const currentPrefUuid = effectivePrefsUuid;
               const matched = techniques.find(
                 (tech) => tech.pref_uuid && tech.pref_uuid === currentPrefUuid
               );

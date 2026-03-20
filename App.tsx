@@ -2,6 +2,7 @@ import { NavigationContainer } from "@react-navigation/native";
 import { useEffect, useState } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { ActivityIndicator, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import LoginScreen from "./screens/LoginScreen";
@@ -110,7 +111,24 @@ export default function App() {
   }, []);
 
   if (isBooting || !isStripeReady || !publishableKey) {
-    return null;
+    return (
+      <SafeAreaProvider style={{ backgroundColor: colors.background }}>
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: colors.background,
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 12,
+          }}
+        >
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={{ color: colors.textSecondary, fontSize: 14 }}>
+            Loading app...
+          </Text>
+        </View>
+      </SafeAreaProvider>
+    );
   }
 
   return (

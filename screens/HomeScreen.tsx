@@ -4,6 +4,7 @@ import {
   Text,
   View,
   ScrollView,
+  FlatList,
   Switch,
   Modal,
   TouchableOpacity,
@@ -190,6 +191,18 @@ export default function HomeScreen() {
     if (!parsed) return false;
     return valueHasContent(parsed);
   };
+  const applyWorkingDaysFromPreference = useCallback(
+    (value?: string | null) => {
+      const parsed = parsePreferenceValue(value);
+      if (parsed && hasPreferenceData(value)) {
+        const parsedPreference = parsed as { working_days?: string[] };
+        setWorkingDays(normalizeWorkingDays(parsedPreference.working_days));
+        return;
+      }
+      setWorkingDays(DEFAULT_WORKING_DAYS);
+    },
+    []
+  );
 
   const updatePreferenceGate = (
     needsSubscription: boolean,
@@ -678,45 +691,31 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      return undefined;
-    }, [])
-  );
-
-  // Runs every time the screen comes into focus
-  useFocusEffect(
-    useCallback(() => {
       let isActive = true;
 
       const checkModals = async () => {
         setIsLoading(true);
-        await loadGlobalOffUntil();
-        console.log("Screen focused - gating using googleAuth-stored subscription and preference");
-
         try {
-          const storedPrefs = await getUserPreferencesFromStorage();
-          const storedPrefUuid = storedPrefs?.uuid ?? null;
-          const storedBreakpointPrefUuid = await getBreakpointPrefUuidFromStorage();
-          console.log("Stored preference uuid:", storedPrefUuid);
-          console.log("Stored breakpoint pref_uuid:", storedBreakpointPrefUuid);
-          const storedPrefValue = storedPrefs?.preference;
-          const parsedStoredPref = parsePreferenceValue(storedPrefValue);
-          if (parsedStoredPref && hasPreferenceData(storedPrefValue)) {
-            try {
-              const parsed = parsedStoredPref as { working_days?: string[] };
-              setWorkingDays(normalizeWorkingDays(parsed?.working_days));
-            } catch {
-              setWorkingDays(DEFAULT_WORKING_DAYS);
-            }
-          } else {
-            setWorkingDays(DEFAULT_WORKING_DAYS);
-          }
-
-          // Step 1: Load user data from AsyncStorage
-          const data = await getUserData();
+          const [
+            ,
+            storedPrefs,
+            data,
+            storedSub,
+            storedBreakpointPrefUuid,
+          ] = await Promise.all([
+            loadGlobalOffUntil(),
+            getUserPreferencesFromStorage(),
+            getUserData(),
+            getUserSubscriptionFromStorage(),
+            getBreakpointPrefUuidFromStorage(),
+          ]);
           if (!isActive) return;
 
+          const storedPrefUuid = storedPrefs?.uuid ?? null;
+          let preferenceValueForGate = storedPrefs?.preference ?? null;
+          let subscriptionForGate = storedSub;
+          applyWorkingDaysFromPreference(preferenceValueForGate);
           setUserData(data);
-          console.log("User data loaded:", data?.uuid);
 
           if (data?.uuid) {
             try {
@@ -732,32 +731,28 @@ export default function HomeScreen() {
                   preference: prefVal,
                   uuid: preferences?.uuid ?? null,
                 });
-                try {
-                  const parsed = parsePreferenceValue(prefVal) as {
-                    working_days?: string[];
-                  };
-                  setWorkingDays(normalizeWorkingDays(parsed?.working_days));
-                } catch {
-                  setWorkingDays(DEFAULT_WORKING_DAYS);
-                }
+                preferenceValueForGate = prefVal;
+                applyWorkingDaysFromPreference(prefVal);
               } else {
                 await setUserPreferences(null);
-                setWorkingDays(DEFAULT_WORKING_DAYS);
+                preferenceValueForGate = null;
+                applyWorkingDaysFromPreference(null);
               }
 
               const planType = (currentPlan?.plan_type || "").trim();
               if (planType) {
                 const normalized = planType.toLowerCase();
-                await setUserSubscription({
+                subscriptionForGate = {
                   is_active: normalized === "premium",
                   tier: planType,
                   expire_date: currentPlan?.end_date || "",
-                });
+                };
+                await setUserSubscription(subscriptionForGate);
               } else {
+                subscriptionForGate = null;
                 await setUserSubscription(null);
               }
-            } catch (refreshError) {
-              console.log("Failed to refresh plan or preferences:", refreshError);
+            } catch {
             }
           }
 
@@ -778,8 +773,7 @@ export default function HomeScreen() {
                 setAlarms(merged || mappedTechniques);
                 applied = true;
               }
-            } catch (techniquesError) {
-              console.log("Failed to load techniques:", techniquesError);
+            } catch {
             }
 
             if (!applied) {
@@ -795,26 +789,24 @@ export default function HomeScreen() {
                   const merged = await applyAlarmOverrides(scheduleId, mapped);
                   setAlarms(merged || mapped);
                 }
-              } catch (generateError) {
-                console.log("Failed to generate alarm schedule:", generateError);
+              } catch {
               }
             }
           }
 
-          // Plan gating first from stored subscription
-          const storedSub = await getUserSubscriptionFromStorage();
-          const isNilSubscription = storedSub === null;
+          const isNilSubscription = subscriptionForGate === null;
           const needsSubscription =
             isNilSubscription ||
-            !storedSub ||
-            !(storedSub.tier || "").trim() ||
-            shouldShowExpiryModal(storedSub.expire_date, storedSub.tier);
-          const needsPreferences = !hasPreferenceData(storedPrefs?.preference);
+            !subscriptionForGate ||
+            !(subscriptionForGate.tier || "").trim() ||
+            shouldShowExpiryModal(
+              subscriptionForGate.expire_date,
+              subscriptionForGate.tier
+            );
+          const needsPreferences = !hasPreferenceData(preferenceValueForGate);
           updatePreferenceGate(needsSubscription, needsPreferences);
-        } catch (error) {
+        } catch {
           if (!isActive) return;
-          console.error("Error checking modals:", error);
-          // On error, default to plan first then preference
           setShowSubscriptionModal(true);
           setShowPreferencesModal(false);
         } finally {
@@ -837,18 +829,7 @@ export default function HomeScreen() {
     setShowPreferencesModal(false);
     (async () => {
       const storedPrefs = await getUserPreferencesFromStorage();
-      const storedPrefValue = storedPrefs?.preference;
-      const parsedStoredPref = parsePreferenceValue(storedPrefValue);
-      if (parsedStoredPref && hasPreferenceData(storedPrefValue)) {
-        try {
-          const parsed = parsedStoredPref as { working_days?: string[] };
-          setWorkingDays(normalizeWorkingDays(parsed?.working_days));
-        } catch {
-          setWorkingDays(DEFAULT_WORKING_DAYS);
-        }
-      } else {
-        setWorkingDays(DEFAULT_WORKING_DAYS);
-      }
+      applyWorkingDaysFromPreference(storedPrefs?.preference);
     })();
   };
 
@@ -882,7 +863,6 @@ export default function HomeScreen() {
     const storedPrefUuid = await getBreakpointPrefUuidFromStorage();
     const scheduleId = storedGenerated?.uuid || storedPrefUuid;
     if (!scheduleId) {
-      console.log("Schedule update skipped: missing uuid");
       return;
     }
     const seen = new Set<string>();
@@ -898,17 +878,11 @@ export default function HomeScreen() {
         start_time: { alarm_time: alarm.time, label: alarm.label },
       }));
     if (alarmPatterns.length === 0) {
-      console.log("Schedule update skipped: no enabled alarms");
       return;
     }
     try {
-      console.log("Schedule update call", {
-        uuid: scheduleId,
-        alarmCount: alarmPatterns.length,
-      });
       await breakpointsService.updateSchedule(scheduleId, alarmPatterns);
-    } catch (error) {
-      console.log("Failed to update alarm schedule:", error);
+    } catch {
     }
   }, []);
 
@@ -998,8 +972,7 @@ export default function HomeScreen() {
         await clearAlarmOverrides();
         setAlarms(mapped);
       }
-    } catch (error) {
-      console.log("Failed to generate alarm schedule:", error);
+    } catch {
     } finally {
       setIsGenerating(false);
     }
@@ -1038,7 +1011,12 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {renderedAlarms.length === 0 ? (
+        {isLoading ? (
+          <View style={styles.loadingState}>
+            <ActivityIndicator size="large" color="#f58220" />
+            <Text style={styles.loadingText}>Loading your alarms...</Text>
+          </View>
+        ) : renderedAlarms.length === 0 ? (
           <View style={styles.emptyState}>
             <View style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>Generate Alarms</Text>
@@ -1058,12 +1036,13 @@ export default function HomeScreen() {
             </View>
           </View>
         ) : (
-          <ScrollView
+          <FlatList
             style={styles.alarmList}
             contentContainerStyle={styles.alarmListContent}
             showsVerticalScrollIndicator={false}
-          >
-            {renderedAlarms.map((alarm) => (
+            data={renderedAlarms}
+            keyExtractor={(alarm) => alarm.id}
+            renderItem={({ item: alarm }) => (
               <View key={alarm.id} style={styles.alarmItem}>
                 <View style={styles.alarmInfo}>
                   <Text style={styles.alarmTime}>{alarm.time}</Text>
@@ -1082,8 +1061,8 @@ export default function HomeScreen() {
                   />
                 </View>
               </View>
-            ))}
-          </ScrollView>
+            )}
+          />
         )}
       </SafeAreaView>
 
@@ -1100,12 +1079,14 @@ export default function HomeScreen() {
           <View style={styles.editModalWrapper}>
             <View style={styles.editModalContainer}>
             <Text style={styles.modalTitle}>Edit Alarms</Text>
-            <ScrollView
+            <FlatList
               style={styles.editList}
               contentContainerStyle={styles.editListContent}
               showsVerticalScrollIndicator={false}
-            >
-              {draftAlarms.map((alarm) => (
+              keyboardShouldPersistTaps="handled"
+              data={draftAlarms}
+              keyExtractor={(alarm) => alarm.id}
+              renderItem={({ item: alarm }) => (
                 <View key={alarm.id} style={styles.editRow}>
                   <TextInput
                     style={[styles.editInput, styles.editLabelInput]}
@@ -1129,8 +1110,8 @@ export default function HomeScreen() {
                     </Text>
                   </TouchableOpacity>
                 </View>
-              ))}
-            </ScrollView>
+              )}
+            />
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={styles.modalButton}
@@ -1310,6 +1291,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     alignItems: "center",
     justifyContent: "center",
+  },
+  loadingState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: "#aaa",
   },
   emptyCard: {
     width: "100%",

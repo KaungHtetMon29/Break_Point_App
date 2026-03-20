@@ -3,7 +3,7 @@
  * Handles breakpoint-related endpoints
  */
 
-import apiClient, { getAuthToken } from "./api";
+import apiClient from "./api";
 import {
   BreakpointTechnique,
   GenerateBreakpointResponse,
@@ -44,20 +44,9 @@ export const breakpointsService = {
   },
 
   getAdaptiveAlarm: async (): Promise<BreakpointTechnique[]> => {
-    const url = "/breakpoints/get_adaptive_alarm";
-    const token = await getAuthToken();
-    const requestHeaders = token ? { Authorization: `Bearer ${token}` } : {};
-    const headers = {
-      ...(apiClient.defaults.headers.common || {}),
-      ...requestHeaders,
-    };
-    if ("Authorization" in headers) {
-      headers.Authorization = "Bearer ***";
-    }
-    console.log("Adaptive alarm request", { url, headers });
-    const response = await apiClient.get<BreakpointTechnique[]>(url, {
-      headers: requestHeaders,
-    });
+    const response = await apiClient.get<BreakpointTechnique[]>(
+      "/breakpoints/get_adaptive_alarm"
+    );
     return response.data;
   },
 
@@ -65,10 +54,7 @@ export const breakpointsService = {
     id: string,
     alarmPatterns: AlarmPatterns[]
   ): Promise<void> => {
-    const endpoint = `/breakpoints/${id}/schedule_update`;
-    const body = { alarm_patterns: alarmPatterns };
-    console.log("Schedule update request", { endpoint, uuid: id, body });
-    await apiClient.post(endpoint, {
+    await apiClient.post(`/breakpoints/${id}/schedule_update`, {
       alarm_patterns: alarmPatterns,
     });
   },
