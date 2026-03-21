@@ -15,7 +15,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useState } from "react";
 import { SignUpScreenNavigationProp } from "../types/navigation";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
-import { getUserData, userService, setUserPreferences, authService } from "../services";
+import {
+  getUserData,
+  userService,
+  setUserPreferences,
+  authService,
+  getApiErrorMessage,
+} from "../services";
 
 type SignUpScreenProps = {
   navigation: SignUpScreenNavigationProp;
@@ -27,6 +33,18 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const trimmedEmail = email.trim().toLowerCase();
+  const trimmedName = fullName.trim();
+  const trimmedPassword = password.trim();
+  const trimmedConfirmPassword = confirmPassword.trim();
+  const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail);
+  const isPasswordValid = trimmedPassword.length >= 8;
+  const canSubmit =
+    !isSubmitting &&
+    trimmedName.length >= 2 &&
+    isEmailValid &&
+    isPasswordValid &&
+    trimmedConfirmPassword.length > 0;
 
   const { signInWithGoogle, isSigningIn, error, isReady } = useGoogleAuth();
 
@@ -43,7 +61,6 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
             );
             await setUserPreferences(preferences || null);
           } catch {
-            await setUserPreferences(null);
           }
         }
 
@@ -52,9 +69,7 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
           index: 0,
           routes: [{ name: "MainTabs" }],
         });
-      } catch (fetchError) {
-        console.error("Error fetching preferences:", fetchError);
-        // Still navigate even if preferences fetch fails
+      } catch {
         navigation.reset({
           index: 0,
           routes: [{ name: "MainTabs" }],
@@ -66,13 +81,23 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
   };
 
   const handleSignUp = async () => {
-    const trimmedEmail = email.trim();
-    const trimmedName = fullName.trim();
-    if (!trimmedEmail || !trimmedName || !password || !confirmPassword) {
+    if (!trimmedEmail || !trimmedName || !trimmedPassword || !trimmedConfirmPassword) {
       Alert.alert("Missing info", "Please fill out all fields.");
       return;
     }
-    if (password !== confirmPassword) {
+    if (!isEmailValid) {
+      Alert.alert("Invalid email", "Please enter a valid email address.");
+      return;
+    }
+    if (trimmedName.length < 2) {
+      Alert.alert("Invalid name", "Please enter your full name.");
+      return;
+    }
+    if (!isPasswordValid) {
+      Alert.alert("Weak password", "Password must be at least 8 characters.");
+      return;
+    }
+    if (trimmedPassword !== trimmedConfirmPassword) {
       Alert.alert("Password mismatch", "Passwords do not match.");
       return;
     }
@@ -82,14 +107,14 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
       await authService.signUp({
         email: trimmedEmail,
         username: trimmedName,
-        password,
+        password: trimmedPassword,
       });
       navigation.reset({
         index: 0,
         routes: [{ name: "MainTabs" }],
       });
-    } catch {
-      Alert.alert("Sign up failed", "Please try again.");
+    } catch (error) {
+      Alert.alert("Sign up failed", getApiErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -134,6 +159,7 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
                 onChangeText={setEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                autoCorrect={false}
               />
               <Text style={styles.inputLabel}>Full name</Text>
               <TextInput
@@ -153,6 +179,7 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry
+                autoCorrect={false}
               />
 
               <Text style={styles.inputLabel}>Confirm Password</Text>
@@ -163,6 +190,7 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 secureTextEntry
+                autoCorrect={false}
               />
             </View>
           </View>
@@ -184,9 +212,9 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
             </View>
 
             <TouchableOpacity
-              style={styles.signUpButton}
+              style={[styles.signUpButton, !canSubmit && styles.signUpButtonDisabled]}
               onPress={handleSignUp}
-              disabled={isSubmitting}
+              disabled={!canSubmit}
             >
               {isSubmitting ? (
                 <ActivityIndicator size="small" color="#fff" />
@@ -330,6 +358,9 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 80,
     marginBottom: 24,
+  },
+  signUpButtonDisabled: {
+    opacity: 0.6,
   },
   signUpButtonText: {
     fontSize: 18,

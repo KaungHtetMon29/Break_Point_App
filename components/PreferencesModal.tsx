@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Platform,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { useEffect, useState, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
@@ -166,6 +167,8 @@ export default function PreferencesModal({
   const [showCareerDropdown, setShowCareerDropdown] = useState(false);
   const [showClockInPicker, setShowClockInPicker] = useState(false);
   const [showClockOutPicker, setShowClockOutPicker] = useState(false);
+  const sanitizeDigits = (value: string, maxLength = 3) =>
+    value.replace(/[^0-9]/g, "").slice(0, maxLength);
 
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString("en-US", {
@@ -289,7 +292,33 @@ export default function PreferencesModal({
     }
   }, [currentPreferenceObj, initialPreferenceObj]);
 
+  const step1ValidationMessage = useMemo(() => {
+    const weightValue = Number(weight);
+    if (!Number.isFinite(weightValue) || weightValue <= 0) {
+      return "Please enter a valid weight.";
+    }
+    const heightValue = Number(height);
+    if (!Number.isFinite(heightValue) || heightValue <= 0) {
+      return "Please enter a valid height.";
+    }
+    const breakValue = Number(breakDuration);
+    if (!Number.isFinite(breakValue) || breakValue <= 0 || breakValue > 12) {
+      return "Break duration must be between 1 and 12 hours.";
+    }
+    if (workingDays.length === 0) {
+      return "Select at least one working day.";
+    }
+    if (clockInTime.getTime() === clockOutTime.getTime()) {
+      return "Clock-in and clock-out times cannot be the same.";
+    }
+    return null;
+  }, [weight, height, breakDuration, workingDays.length, clockInTime, clockOutTime]);
+
   const handleNext = () => {
+    if (step1ValidationMessage) {
+      Alert.alert("Invalid form", step1ValidationMessage);
+      return;
+    }
     setStep(2);
   };
 
@@ -298,40 +327,52 @@ export default function PreferencesModal({
   };
 
   const handleSubmit = async () => {
-    setSubmitting(true);
-    const userData = await getUserData();
-    const preferenceObj = {
-      age: ageRange,
-      weight: `${weight} lb`,
-      height: `${height} cm`,
-      career_type: careerType,
-      working_hour: {
-        "clock-in_time": formatTime(clockInTime),
-        "clock-out_time": formatTime(clockOutTime),
-        "break_time": `${breakDuration} Hr`,
-      },
-      working_days: workingDays,
-      health_condition: healthConditions,
-      break_method: selectedMethod || "",
-    };
-    console.log("Submitting preferences payload", preferenceObj);
-    const preferenceStr = JSON.stringify(preferenceObj);
-    let storedPreference = preferenceStr;
-    let storedUuid: string | null = null;
-    if (userData?.uuid) {
-      const updated = await userService.updateUserPreferences(userData.uuid, {
-        preference: preferenceStr,
-      });
-      if (updated?.preference) {
-        storedPreference = updated.preference;
-      }
-      storedUuid = updated?.uuid ?? null;
+    if (step1ValidationMessage) {
+      Alert.alert("Invalid form", step1ValidationMessage);
+      return;
     }
-    const updatedPrefs = { preference: storedPreference, uuid: storedUuid };
-    await setUserPreferences(updatedPrefs);
-    onComplete(updatedPrefs);
-    setSubmitting(false);
-    setStep(1);
+    if (!selectedMethod) {
+      Alert.alert("Select a method", "Please choose a break method.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const userData = await getUserData();
+      const preferenceObj = {
+        age: ageRange,
+        weight: `${weight} lb`,
+        height: `${height} cm`,
+        career_type: careerType,
+        working_hour: {
+          "clock-in_time": formatTime(clockInTime),
+          "clock-out_time": formatTime(clockOutTime),
+          "break_time": `${breakDuration} Hr`,
+        },
+        working_days: workingDays,
+        health_condition: healthConditions.trim(),
+        break_method: selectedMethod,
+      };
+      const preferenceStr = JSON.stringify(preferenceObj);
+      let storedPreference = preferenceStr;
+      let storedUuid: string | null = null;
+      if (userData?.uuid) {
+        const updated = await userService.updateUserPreferences(userData.uuid, {
+          preference: preferenceStr,
+        });
+        if (updated?.preference) {
+          storedPreference = updated.preference;
+        }
+        storedUuid = updated?.uuid ?? null;
+      }
+      const updatedPrefs = { preference: storedPreference, uuid: storedUuid };
+      await setUserPreferences(updatedPrefs);
+      onComplete(updatedPrefs);
+      setStep(1);
+    } catch {
+      Alert.alert("Update failed", "Unable to save preferences. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const navigateMethod = (direction: "left" | "right") => {
@@ -413,7 +454,7 @@ export default function PreferencesModal({
             <TextInput
               style={styles.textInput}
               value={weight}
-              onChangeText={setWeight}
+              onChangeText={(value) => setWeight(sanitizeDigits(value))}
               keyboardType="numeric"
             />
             <Text style={styles.unitText}>lb</Text>
@@ -426,7 +467,7 @@ export default function PreferencesModal({
             <TextInput
               style={styles.textInput}
               value={height}
-              onChangeText={setHeight}
+              onChangeText={(value) => setHeight(sanitizeDigits(value))}
               keyboardType="numeric"
             />
             <Text style={styles.unitText}>cm</Text>
@@ -476,7 +517,7 @@ export default function PreferencesModal({
               <TextInput
                 style={styles.textInput}
                 value={breakDuration}
-                onChangeText={setBreakDuration}
+                onChangeText={(value) => setBreakDuration(sanitizeDigits(value, 2))}
                 keyboardType="numeric"
               />
               <Text style={styles.unitText}>Hr</Text>
@@ -530,7 +571,13 @@ export default function PreferencesModal({
       </View>
 
       {/* Next Button */}
-      <TouchableOpacity style={styles.nextButton} onPress={handleNext}>
+      <TouchableOpacity
+        style={[
+          styles.nextButton,
+          step1ValidationMessage && styles.nextButtonDisabled,
+        ]}
+        onPress={handleNext}
+      >
         <Text style={styles.nextButtonText}>Next</Text>
       </TouchableOpacity>
     </ScrollView>
@@ -822,6 +869,9 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: "center",
     marginTop: 10,
+  },
+  nextButtonDisabled: {
+    opacity: 0.5,
   },
   nextButtonText: {
     fontSize: 16,

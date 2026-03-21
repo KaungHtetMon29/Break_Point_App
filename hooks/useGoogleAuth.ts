@@ -6,7 +6,7 @@ import {
   statusCodes,
   User,
 } from "@react-native-google-signin/google-signin";
-import { authService, clearAuthToken } from "../services";
+import { authService, clearAuthToken, getApiErrorMessage } from "../services";
 
 // Web client ID for OAuth (used for server-side verification)
 const WEB_CLIENT_ID =
@@ -41,8 +41,7 @@ export function useGoogleAuth() {
       if (currentUser) {
         setUser(mapUserData(currentUser));
       }
-    } catch (err) {
-      console.log("No current user");
+    } catch {
     }
   };
 
@@ -78,12 +77,10 @@ export function useGoogleAuth() {
         try {
           const idToken = response.data?.idToken;
           if (idToken) {
-            const authResponse = await authService.googleAuth(idToken);
-            console.log("Backend auth successful, JWT stored");
+            await authService.googleAuth(idToken);
           }
         } catch (backendError) {
-          console.error("Backend auth failed:", backendError);
-          // Continue even if backend fails - user is still signed in with Google
+          setError(getApiErrorMessage(backendError));
         }
 
         return userData;
@@ -107,7 +104,6 @@ export function useGoogleAuth() {
       } else {
         setError("An unexpected error occurred");
       }
-      console.error("Google sign in error:", err);
       return null;
     } finally {
       setIsSigningIn(false);
@@ -125,14 +121,12 @@ export function useGoogleAuth() {
       // Try to call backend logout (optional)
       try {
         await authService.logout();
-      } catch (backendError) {
-        // Backend logout failed, but local logout succeeded
-        console.log("Backend logout failed, continuing with local logout");
+      } catch {
       }
 
       setUser(null);
     } catch (err: unknown) {
-      console.error("Sign out error:", err);
+      setError(getApiErrorMessage(err, "Sign out failed. Please try again."));
     }
   };
 

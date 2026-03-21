@@ -33,6 +33,8 @@ import {
   userService,
   setBreakpointData,
   setBreakpointGenerateData,
+  getApiErrorMessage,
+  pingService,
 } from "../services";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -72,6 +74,7 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
   const [nameInput, setNameInput] = useState("");
   const [isSavingName, setIsSavingName] = useState(false);
   const [nameOverride, setNameOverride] = useState<string | null>(null);
+  const [isOnline, setIsOnline] = useState(true);
 
   const handleGoBack = () => {
     if (navigation.canGoBack()) {
@@ -84,6 +87,22 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
   useFocusEffect(
     useCallback(() => {
       let active = true;
+      const checkConnectivity = async () => {
+        try {
+          await pingService.ping();
+          if (active) {
+            setIsOnline(true);
+          }
+        } catch {
+          if (active) {
+            setIsOnline(false);
+          }
+        }
+      };
+      void checkConnectivity();
+      const connectivityInterval = setInterval(() => {
+        void checkConnectivity();
+      }, 15000);
       (async () => {
         try {
           const [ud, sp, sub] = await Promise.all([
@@ -96,18 +115,24 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
           setPrefs(sp);
           setSubscription(sub);
           if (ud?.uuid) {
-            const [storedPrefUuid, latestPrefs, techniques] = await Promise.all([
-              getBreakpointPrefUuidFromStorage().catch(() => null),
-              userService.getUserPreferences(ud.uuid).catch(() => null),
-              breakpointsService.getTechniques(ud.uuid).catch(() => []),
-            ]);
+            const [storedPrefUuidResult, latestPrefsResult, techniquesResult] =
+              await Promise.allSettled([
+                getBreakpointPrefUuidFromStorage(),
+                userService.getUserPreferences(ud.uuid),
+                breakpointsService.getTechniques(ud.uuid),
+              ]);
             if (!active) return;
-            if (storedPrefUuid) {
-              setBreakpointPrefUuidState(storedPrefUuid);
+            const storedPrefUuid =
+              storedPrefUuidResult.status === "fulfilled"
+                ? storedPrefUuidResult.value
+                : null;
+            if (storedPrefUuid && storedPrefUuid.trim() !== "") {
+              setBreakpointPrefUuidState(storedPrefUuid.trim());
             }
 
             let effectivePrefsUuid = sp?.uuid ?? null;
-            try {
+            if (latestPrefsResult.status === "fulfilled") {
+              const latestPrefs = latestPrefsResult.value;
               const prefVal = latestPrefs?.preference;
               if (prefVal && prefVal.trim() !== "") {
                 const updatedPrefs = {
@@ -122,10 +147,12 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
                 setPrefs(null);
                 effectivePrefsUuid = null;
               }
-            } catch {
             }
 
-            try {
+            if (techniquesResult.status === "fulfilled") {
+              const techniques = Array.isArray(techniquesResult.value)
+                ? techniquesResult.value
+                : [];
               const currentPrefUuid = effectivePrefsUuid;
               const matched = techniques.find(
                 (tech) => tech.pref_uuid && tech.pref_uuid === currentPrefUuid
@@ -144,23 +171,18 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
                   techniques: breakpointData.techniques,
                 });
               }
-            } catch {
-              if (!active) return;
             }
           } else {
             setBreakpointPrefUuidState(null);
           }
         } catch {
           if (!active) return;
-          setJwtUser(null);
-          setPrefs(null);
-          setSubscription(null);
-          setBreakpointPrefUuidState(null);
         }
       })();
 
       return () => {
         active = false;
+        clearInterval(connectivityInterval);
       };
     }, [])
   );
@@ -239,13 +261,15 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
           techniques: breakpointData.techniques,
         });
       }
-    } catch {
+    } catch (error) {
+      Alert.alert("Generate failed", getApiErrorMessage(error));
     } finally {
       setIsGenerating(false);
     }
   };
 
   const handleEditName = () => {
+    if (!isOnline) return;
     setNameInput(displayName);
     setIsEditingName(true);
   };
@@ -280,8 +304,8 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
         await setUserData(updated);
       }
       setIsEditingName(false);
-    } catch {
-      Alert.alert("Update failed", "Please try again.");
+    } catch (error) {
+      Alert.alert("Update failed", getApiErrorMessage(error));
     } finally {
       setIsSavingName(false);
     }
@@ -347,7 +371,7 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
                 <TouchableOpacity
                   style={[styles.nameActionButton, styles.nameActionPrimary]}
                   onPress={handleSaveName}
-                  disabled={isSavingName}
+                  disabled={isSavingName || !isOnline}
                 >
                   {isSavingName ? (
                     <ActivityIndicator size="small" color={colors.white} />
@@ -361,8 +385,9 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
             <>
               <Text style={styles.userName}>{displayName}</Text>
               <TouchableOpacity
-                style={styles.editButton}
+                style={[styles.editButton, !isOnline && styles.editButtonDisabled]}
                 onPress={handleEditName}
+                disabled={!isOnline}
               >
                 <Ionicons name="create-outline" size={20} color={colors.primary} />
               </TouchableOpacity>
@@ -403,8 +428,9 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
           <View style={styles.preferencesHeaderRow}>
             <Text style={styles.sectionTitle}>Personal Preferences</Text>
             <TouchableOpacity
-              style={styles.editButton}
+              style={[styles.editButton, !isOnline && styles.editButtonDisabled]}
               onPress={() => setShowPreferencesModal(true)}
+              disabled={!isOnline}
             >
               <Ionicons name="create-outline" size={20} color={colors.primary} />
             </TouchableOpacity>
@@ -641,6 +667,9 @@ const styles = StyleSheet.create({
   },
   editButton: {
     padding: spacing.xs,
+  },
+  editButtonDisabled: {
+    opacity: 0.4,
   },
   preferencesHeaderRow: {
     ...commonStyles.flexRowBetween,

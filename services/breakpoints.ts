@@ -3,7 +3,7 @@
  * Handles breakpoint-related endpoints
  */
 
-import apiClient from "./api";
+import apiClient, { enqueueOfflineRequest, isNetworkError } from "./api";
 import {
   BreakpointTechnique,
   GenerateBreakpointResponse,
@@ -53,10 +53,25 @@ export const breakpointsService = {
   updateSchedule: async (
     id: string,
     alarmPatterns: AlarmPatterns[]
-  ): Promise<void> => {
-    await apiClient.post(`/breakpoints/${id}/schedule_update`, {
-      alarm_patterns: alarmPatterns,
-    });
+  ): Promise<{ buffered: boolean }> => {
+    try {
+      await apiClient.post(`/breakpoints/${id}/schedule_update`, {
+        alarm_patterns: alarmPatterns,
+      });
+      return { buffered: false };
+    } catch (error) {
+      if (!isNetworkError(error)) {
+        throw error;
+      }
+      await enqueueOfflineRequest({
+        method: "post",
+        url: `/breakpoints/${id}/schedule_update`,
+        data: {
+          alarm_patterns: alarmPatterns,
+        },
+      });
+      return { buffered: true };
+    }
   },
 };
 

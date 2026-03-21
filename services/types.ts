@@ -122,6 +122,7 @@ export interface RecordActivityRequest {
 
 export interface RecordActivityResponse {
   status: "success" | "failed";
+  buffered?: boolean;
 }
 
 export interface CanGenerateAdaptiveResponse {
@@ -131,6 +132,7 @@ export interface CanGenerateAdaptiveResponse {
 
 export interface ConsentResponse {
   status: "success" | "failed";
+  buffered?: boolean;
 }
 
 export interface SubmitFeedbackRequest {
@@ -139,6 +141,7 @@ export interface SubmitFeedbackRequest {
 
 export interface SubmitFeedbackResponse {
   status: "success" | "failed";
+  buffered?: boolean;
 }
 
 // ============ Breakpoints Types ============

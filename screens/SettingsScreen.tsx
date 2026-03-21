@@ -122,6 +122,14 @@ export default function SettingsScreen() {
       if (response.status === "success") {
         setFeedbackText("");
         setShowFeedbackModal(false);
+        if (response.buffered) {
+          setAdaptiveNotice({
+            title: "Feedback Queued",
+            message:
+              "You are offline. We will send your feedback when internet is back.",
+          });
+          return;
+        }
         setAdaptiveNotice({
           title: "Feedback Sent",
           message: "Thank you for sharing your feedback.",

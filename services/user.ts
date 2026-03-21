@@ -4,7 +4,11 @@
  */
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import apiClient from "./api";
+import apiClient, {
+  enqueueOfflineRequest,
+  flushOfflineRequestQueue,
+  isNetworkError,
+} from "./api";
 import {
   UserDetail,
   UpdateUserRequest,
@@ -26,6 +30,7 @@ import {
   SubmitFeedbackResponse,
 } from "./types";
 const STRIPE_API_KEY = "stripe_key";
+
 export const userService = {
   /**
    * Get user details by ID
@@ -107,8 +112,12 @@ export const userService = {
    */
   getStripePublishableKey: async (): Promise<StripeKeyResponse> => {
     const response = await apiClient.get<StripeKeyResponse>("/user/stripe_key");
-     await AsyncStorage.setItem(STRIPE_API_KEY, response.data.stripe_key);
+    await AsyncStorage.setItem(STRIPE_API_KEY, response.data.stripe_key);
     return response.data;
+  },
+
+  getStoredStripePublishableKey: async (): Promise<string | null> => {
+    return AsyncStorage.getItem(STRIPE_API_KEY);
   },
 
   /**
@@ -122,11 +131,23 @@ export const userService = {
   recordActivity: async (
     data: RecordActivityRequest
   ): Promise<RecordActivityResponse> => {
-    const response = await apiClient.post<RecordActivityResponse>(
-      "/user/activity",
-      data
-    );
-    return response.data;
+    try {
+      const response = await apiClient.post<RecordActivityResponse>(
+        "/user/activity",
+        data
+      );
+      return response.data;
+    } catch (error) {
+      if (!isNetworkError(error)) {
+        throw error;
+      }
+      await enqueueOfflineRequest({
+        method: "post",
+        url: "/user/activity",
+        data,
+      });
+      return { status: "success", buffered: true };
+    }
   },
 
   canGenerateAdaptive: async (): Promise<CanGenerateAdaptiveResponse> => {
@@ -137,15 +158,47 @@ export const userService = {
   },
 
   acceptConsent: async (): Promise<ConsentResponse> => {
-    const response = await apiClient.post<ConsentResponse>("/user/accept_consent");
-    return response.data;
+    try {
+      const response = await apiClient.post<ConsentResponse>(
+        "/user/accept_consent"
+      );
+      return response.data;
+    } catch (error) {
+      if (!isNetworkError(error)) {
+        throw error;
+      }
+      await enqueueOfflineRequest({
+        method: "post",
+        url: "/user/accept_consent",
+      });
+      return { status: "success", buffered: true };
+    }
   },
 
   submitFeedback: async (
     data: SubmitFeedbackRequest
   ): Promise<SubmitFeedbackResponse> => {
-    const response = await apiClient.post<SubmitFeedbackResponse>("/user/feedback", data);
-    return response.data;
+    try {
+      const response = await apiClient.post<SubmitFeedbackResponse>(
+        "/user/feedback",
+        data
+      );
+      return response.data;
+    } catch (error) {
+      if (!isNetworkError(error)) {
+        throw error;
+      }
+      await enqueueOfflineRequest({
+        method: "post",
+        url: "/user/feedback",
+        data,
+      });
+      return { status: "success", buffered: true };
+    }
+  },
+
+  syncOfflineQueue: async (): Promise<number> => {
+    return flushOfflineRequestQueue();
   },
 };
 

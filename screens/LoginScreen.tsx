@@ -15,7 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useState } from "react";
 import { LoginScreenNavigationProp } from "../types/navigation";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
-import { authService } from "../services";
+import { authService, getApiErrorMessage } from "../services";
 
 type LoginScreenProps = {
   navigation: LoginScreenNavigationProp;
@@ -25,6 +25,10 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const trimmedEmail = email.trim().toLowerCase();
+  const trimmedPassword = password.trim();
+  const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail);
+  const loginDisabled = isSubmitting || !isEmailValid || trimmedPassword.length === 0;
 
   const { signInWithGoogle, isSigningIn, error, isReady } = useGoogleAuth();
 
@@ -40,9 +44,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           index: 0,
           routes: [{ name: "MainTabs" }],
         });
-      } catch (fetchError) {
-        console.error("Error fetching preferences:", fetchError);
-        // Still navigate even if preferences fetch fails
+      } catch {
         navigation.reset({
           index: 0,
           routes: [{ name: "MainTabs" }],
@@ -54,20 +56,27 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
   };
 
   const handleLogin = async () => {
-    if (!email.trim() || !password) {
+    if (!trimmedEmail || !trimmedPassword) {
       Alert.alert("Missing info", "Please enter email and password.");
+      return;
+    }
+    if (!isEmailValid) {
+      Alert.alert("Invalid email", "Please enter a valid email address.");
       return;
     }
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      await authService.login({ email: email.trim(), password });
+      await authService.login({ email: trimmedEmail, password: trimmedPassword });
       navigation.reset({
         index: 0,
         routes: [{ name: "MainTabs" }],
       });
-    } catch {
-      Alert.alert("Login failed", "Please check your credentials.");
+    } catch (error) {
+      Alert.alert(
+        "Login failed",
+        getApiErrorMessage(error, "Please check your credentials.")
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -109,6 +118,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
                 onChangeText={setEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                autoCorrect={false}
               />
 
               <Text style={styles.inputLabel}>Password</Text>
@@ -119,6 +129,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry
+                autoCorrect={false}
               />
 
               <TouchableOpacity style={styles.forgotPassword}>
@@ -130,9 +141,9 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           {/* Bottom Section */}
           <View style={styles.bottomSection}>
             <TouchableOpacity
-              style={styles.loginButton}
+              style={[styles.loginButton, loginDisabled && styles.loginButtonDisabled]}
               onPress={handleLogin}
-              disabled={isSubmitting}
+              disabled={loginDisabled}
             >
               {isSubmitting ? (
                 <ActivityIndicator size="small" color="#fff" />
@@ -255,6 +266,9 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 80,
     marginBottom: 24,
+  },
+  loginButtonDisabled: {
+    opacity: 0.6,
   },
   loginButtonText: {
     fontSize: 18,

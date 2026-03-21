@@ -24,6 +24,8 @@ export {
   setUserSubscription,
   getUserSubscriptionFromStorage,
   clearUserSubscription,
+  isNetworkError,
+  getApiErrorMessage,
 } from "./api";
 
 // Export types

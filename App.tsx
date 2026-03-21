@@ -2,7 +2,7 @@ import { NavigationContainer } from "@react-navigation/native";
 import { useEffect, useState } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { ActivityIndicator, Text, View } from "react-native";
+import { ActivityIndicator, AppState, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import LoginScreen from "./screens/LoginScreen";
@@ -58,15 +58,15 @@ function MainTabs() {
 
 export default function App() {
   const [publishableKey, setPublishableKey] = useState<string | null>(null);
-  const [isStripeReady, setIsStripeReady] = useState(false);
   const fetchPublishableKey = async () => {
     try {
+      const storedKey = await userService.getStoredStripePublishableKey();
+      if (storedKey) {
+        setPublishableKey(storedKey);
+      }
       const key = await userService.getStripePublishableKey();
       setPublishableKey(key.stripe_key);
-      setIsStripeReady(true);
     } catch {
-      setPublishableKey(null);
-      setIsStripeReady(false);
     }
   };
   const [initialRoute, setInitialRoute] = useState<keyof RootStackParamList>(
@@ -75,6 +75,30 @@ export default function App() {
   const [isBooting, setIsBooting] = useState(true);
   useEffect(() => {
     fetchPublishableKey();
+  }, []);
+
+  useEffect(() => {
+    const syncQueuedRequests = async () => {
+      const token = await getAuthToken();
+      if (!token) return;
+      await userService.syncOfflineQueue();
+    };
+    void syncQueuedRequests();
+    const appStateSubscription = AppState.addEventListener(
+      "change",
+      (nextState) => {
+        if (nextState === "active") {
+          void syncQueuedRequests();
+        }
+      }
+    );
+    const interval = setInterval(() => {
+      void syncQueuedRequests();
+    }, 30000);
+    return () => {
+      appStateSubscription.remove();
+      clearInterval(interval);
+    };
   }, []);
   useEffect(() => {
     let active = true;
@@ -110,7 +134,7 @@ export default function App() {
     };
   }, []);
 
-  if (isBooting || !isStripeReady || !publishableKey) {
+  if (isBooting) {
     return (
       <SafeAreaProvider style={{ backgroundColor: colors.background }}>
         <View
@@ -131,8 +155,7 @@ export default function App() {
     );
   }
 
-  return (
-    <StripeProvider publishableKey={publishableKey}>
+  const appTree = (
     <SafeAreaProvider style={{ backgroundColor: colors.background }}>
       <NavigationContainer theme={navigationTheme}>
         <Stack.Navigator
@@ -153,6 +176,11 @@ export default function App() {
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>
-    </StripeProvider>
   );
+
+  if (publishableKey) {
+    return <StripeProvider publishableKey={publishableKey}>{appTree}</StripeProvider>;
+  }
+
+  return appTree;
 }
